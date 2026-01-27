@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 import json
 
-GIT_DIR = ".\\temp"
+GIT_DIR = "./temp"
 
 # TODO: List by Directory
 # TODO: If not sas, add the count to a different thing
@@ -50,13 +50,14 @@ def is_valid_git_url_gp(url):
 
 
 def count_sas_lines(file: str):
-    with open(file) as f:
+    with open(file, encoding="windows-1252") as f:
         # Count the line if it's not blank, and it doesn't start with /*
         return sum(1 for line in f if line.strip() and line.strip()[0:2] != "/*")
 
 
 def count_other_lines(file: str):
-    with open(file) as f:
+    with open(file, 'rb') as f:
+        print(file)
         # count the line if it's not blank
         return sum(1 for line in f if line.strip())
 
