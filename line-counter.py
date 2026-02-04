@@ -5,11 +5,23 @@ from git import Repo, GitCommandError
 import argparse
 from pathlib import Path
 import json
+import pandas as pd
+from pprint import pprint
+from markdown_it import MarkdownIt
+from weasyprint import HTML, CSS
+
 
 GIT_DIR = "./temp"
 
-# TODO: List by Directory
-# TODO: If not sas, add the count to a different thing
+MD_FORMAT="""# {}
+## Line Count by Extension
+{}
+## Line Count by Directory
+{}
+"""
+
+# TODO: add by directory level count - do not count subdir count in dir count. 
+# TODO: prettify output (later)
 
 # Source - https://stackoverflow.com/a
 # Posted by jfs, modified by community. See post 'Timeline' for change history
@@ -51,28 +63,53 @@ def is_valid_git_url_gp(url):
 
 def count_sas_lines(file: str):
     with open(file, encoding="windows-1252") as f:
+    with open(file, encoding="windows-1252") as f:
         # Count the line if it's not blank, and it doesn't start with /*
         return sum(1 for line in f if line.strip() and line.strip()[0:2] != "/*")
 
 
 def count_other_lines(file: str):
     with open(file, 'rb') as f:
-        print(file)
         # count the line if it's not blank
         return sum(1 for line in f if line.strip())
 
 
 def count_lines(files: list):
     line_counts = {".sas": 0}
+    line_counts_dir = {}
     for file in files:
         extension = Path(file).suffix
+        line_count = 0
         if extension == ".sas":
-            line_counts['.sas'] += count_sas_lines(file)
+            line_count = count_sas_lines(file)
+            line_counts['.sas'] += line_count
         elif not is_binary_string(open(file, 'rb').read(1024)):  # if is not binary
-            line_counts[extension] = line_counts.get(extension, 0) + count_other_lines(file)
+            line_count = count_other_lines(file)
+            line_counts[extension] = line_counts.get(extension, 0) + line_count
+        
+        line_counts_dir[str(Path(file).parent)] = line_counts_dir.get(str(Path(file).parent), 0) + line_count
 
-    return line_counts
+    return line_counts, line_counts_dir
 
+def create_pdf(line_count_ext, line_count_dir, title=""):
+    df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
+    df2 = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
+
+
+    # Write to PDF
+    md = MarkdownIt().enable('table')
+    html_text = md.render(MD_FORMAT.format(title, df2.to_markdown(index=False), df.to_markdown(index=False)))
+    css = CSS("style.css")
+    html = HTML(string=html_text)
+    html.write_pdf('./out/LineCount.pdf', stylesheets=[css])
+
+def create_csv(line_count_ext, line_count_dir):
+    with open("./out/line_count_extensions.csv", "w") as f:
+        df = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
+        f.write(df.to_csv())
+    with open("./out/line_count_directory.csv", "w") as f:
+        df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
+        f.write(df.to_csv())
 
 def main(dir_or_repo: str, branch: str = None):
     # SETUP
@@ -96,8 +133,16 @@ def main(dir_or_repo: str, branch: str = None):
     # LOGIC
     try:
         files = list_files(work_dir)
-        print(json.dumps(count_lines(files), indent=4))
+        line_count_ext, line_count_dir = count_lines(files)
+        prefix = "temp" if is_git else ""
+        line_count_ext = { k.removeprefix(prefix): v for k, v in line_count_ext.items() if v != 0}
+        line_count_dir = { k.removeprefix(prefix): v for k, v in line_count_dir.items() if v != 0}
 
+        print(json.dumps(line_count_ext, indent=4))
+        print(json.dumps(line_count_dir, indent=4))
+        Path("./out").mkdir(parents=True, exist_ok=True)
+        create_pdf(line_count_ext, line_count_dir, "Line Count for {}".format(dir_or_repo))
+        create_csv(line_count_ext, line_count_dir)
     # DELETE .TEMP IF NEEDED
     finally:
         if is_git:
