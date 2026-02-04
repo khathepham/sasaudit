@@ -63,7 +63,6 @@ def is_valid_git_url_gp(url):
 
 def count_sas_lines(file: str):
     with open(file, encoding="windows-1252") as f:
-    with open(file, encoding="windows-1252") as f:
         # Count the line if it's not blank, and it doesn't start with /*
         return sum(1 for line in f if line.strip() and line.strip()[0:2] != "/*")
 
