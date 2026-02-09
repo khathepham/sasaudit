@@ -1,163 +1,114 @@
-import os
+import argparse
+import json
+import shutil
+from pathlib import Path
 
 import git
-from git import Repo, GitCommandError
-import argparse
-from pathlib import Path
-import json
 import pandas as pd
-from pprint import pprint
+from git import Repo, GitCommandError
 from markdown_it import MarkdownIt
 from weasyprint import HTML, CSS
 
-
-GIT_DIR = "./temp"
-
-MD_FORMAT="""# {}
+# Configuration
+GIT_DIR = Path("./temp")
+TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
+MD_FORMAT = """# {}
 ## Line Count by Extension
 {}
 ## Line Count by Directory
 {}
 """
 
-# Source - https://stackoverflow.com/a
-# Posted by jfs, modified by community. See post 'Timeline' for change history
-# Retrieved 2026-01-27, License - CC BY-SA 3.0
+def is_binary(path: Path) -> bool:
+    """Check if file is binary by inspecting the first kilobyte."""
+    with path.open('rb') as f:
+        return bool(f.read(1024).translate(None, TEXT_CHARS))
 
-text_chars = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
-
-
-def is_binary_string(bytes):
-    return bool(bytes.translate(None, text_chars))
-
-
-def list_files(root: str):
-    file_list = []
-    for root, dir, files in os.walk(root):
-        if ".git" not in root:
-            for file in files:
-                if ".gitignore" not in file:
-                    file_list.append(os.path.join(root, file))
-    return file_list
-
-
-def is_valid_git_url_gp(url):
-    """
-    Checks if a given URL corresponds to a reachable Git repository using GitPython.
-    """
+def count_lines_in_file(path: Path) -> int:
+    """Counts non-blank lines. Excludes SAS comments if applicable."""
+    ext = path.suffix.lower()
     try:
-        # The ls-remote command checks for references in the remote repository
-        # This will raise a GitCommandError if the URL is invalid or unreachable
-        git.cmd.Git().ls_remote(url)
-        return True
-    except GitCommandError:
-        return False
-    except Exception as e:
-        # Handle other potential errors (e.g., GitPython not installed correctly)
-        print(f"An unexpected error occurred: {e}")
-        return False
+        # SAS files typically use windows-1252
+        encoding = "windows-1252" if ext == ".sas" else "utf-8"
+        with path.open(mode="r", encoding=encoding, errors="ignore") as f:
+            if ext == ".sas":
+                return sum(1 for line in f if (s := line.strip()) and not s.startswith("/*"))
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
 
+def process_repository(root_path: Path):
+    """Walks the directory and aggregates counts, skipping hidden git files."""
+    ext_counts, dir_counts = {}, {}
 
-def count_sas_lines(file: str):
-    with open(file, encoding="windows-1252") as f:
-        # Count the line if it's not blank, and it doesn't start with /*
-        return sum(1 for line in f if line.strip() and line.strip()[0:2] != "/*")
+    for file_path in root_path.rglob('*'):
+        # Ignore .git directory and the .gitignore file
+        if file_path.is_file() and ".git" not in file_path.parts and file_path.name != ".gitignore":
+            if is_binary(file_path):
+                continue
+                
+            count = count_lines_in_file(file_path)
+            if count > 0:
+                ext = file_path.suffix or "no_ext"
+                # Relative path for cleaner reporting
+                parent = str(file_path.parent.relative_to(root_path))
+                ext_counts[ext] = ext_counts.get(ext, 0) + count
+                dir_counts[parent] = dir_counts.get(parent, 0) + count
 
+    return ext_counts, dir_counts
 
-def count_other_lines(file: str):
-    with open(file, 'rb') as f:
-        # count the line if it's not blank
-        return sum(1 for line in f if line.strip())
+def export_results(ext_counts, dir_counts, title, output_dir: Path):
+    """Generates PDF (with original CSS) and CSV files."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    df_ext = pd.DataFrame(ext_counts.items(), columns=["Extension", "Line Count"])
+    df_dir = pd.DataFrame(dir_counts.items(), columns=["Directory", "Line Count"])
 
+    # Generate CSVs
+    df_ext.to_csv(output_dir / "line_count_extensions.csv", index=False)
+    df_dir.to_csv(output_dir / "line_count_directory.csv", index=False)
 
-def count_lines(files: list):
-    line_counts = {".sas": 0}
-    line_counts_dir = {}
-    for file in files:
-        extension = Path(file).suffix
-        line_count = 0
-        if extension == ".sas":
-            line_count = count_sas_lines(file)
-            line_counts['.sas'] += line_count
-        elif not is_binary_string(open(file, 'rb').read(1024)):  # if is not binary
-            line_count = count_other_lines(file)
-            line_counts[extension] = line_counts.get(extension, 0) + line_count
-        
-        line_counts_dir[str(Path(file).parent)] = line_counts_dir.get(str(Path(file).parent), 0) + line_count
-
-    return line_counts, line_counts_dir
-
-def create_pdf(line_count_ext, line_count_dir, out_dir, title=""):
-    df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
-    df2 = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
-
-
-    # Write to PDF
+    # Generate PDF using original style.css
     md = MarkdownIt().enable('table')
-    html_text = md.render(MD_FORMAT.format(title, df2.to_markdown(index=False), df.to_markdown(index=False)))
-    css = CSS("style.css")
-    html = HTML(string=html_text)
-    html.write_pdf('./out/LineCount.pdf', stylesheets=[css])
+    html_content = md.render(MD_FORMAT.format(title, df_ext.to_markdown(index=False), df_dir.to_markdown(index=False)))
+    
+    # Locate style.css (assumes it is in the script's directory)
+    css_path = Path("style.css")
+    stylesheets = [CSS(filename=str(css_path))] if css_path.exists() else []
+    
+    HTML(string=html_content).write_pdf(output_dir / "LineCount.pdf", stylesheets=stylesheets)
 
-def create_csv(line_count_ext, line_count_dir, out_dir):
-    with open("{}/line_count_extensions.csv".format(out_dir), "w") as f:
-        df = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
-        f.write(df.to_csv())
-    with open("{}/line_count_directory.csv".format(out_dir), "w") as f:
-        df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
-        f.write(df.to_csv())
-
-def main(dir_or_repo: str, branch: str = None, out_dir: str = None):
-    # SETUP
-    work_dir = dir_or_repo
-    out_dir = "./out" if not out_dir else out_dir
-    is_git = False
-    if not Path(dir_or_repo).is_dir():
-        if not is_valid_git_url_gp(dir_or_repo):
-            raise ValueError(
-                "One of the following issues have occurred: Invalid Path, Invalid git URL, Inaccessible git repo.\n"
-                "dir-or-repo: " + dir_or_repo)
-        else:
-            work_dir = GIT_DIR
-            print("Cloning {} into {}".format(dir_or_repo, work_dir))
-            repo = Repo.clone_from(dir_or_repo, GIT_DIR)
-            if branch:
-                repo.head.set_reference(repo.heads[branch])
-            repo.head.reset(index=True, working_tree=True)
-
-            is_git = True
-
-    # LOGIC
-    try:
-        files = list_files(work_dir)
-        line_count_ext, line_count_dir = count_lines(files)
-        prefix = "temp" if is_git else ""
-        line_count_ext = { k.removeprefix(prefix): v for k, v in line_count_ext.items() if v != 0}
-        line_count_dir = { k.removeprefix(prefix): v for k, v in line_count_dir.items() if v != 0}
-
-        print(json.dumps(line_count_ext, indent=4))
-        print(json.dumps(line_count_dir, indent=4))
-        Path("./out").mkdir(parents=True, exist_ok=True)
-        create_pdf(line_count_ext, line_count_dir, out_dir, "Line Count for {}".format(dir_or_repo))
-        create_csv(line_count_ext, line_count_dir, out_dir)
-    # DELETE .TEMP IF NEEDED
-    finally:
-        if is_git:
-            print(f"Removing {GIT_DIR}")
-            git.rmtree(GIT_DIR)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        prog="SAS Line Counter for Git Repo",
-        description="Counts lines for all types of files, removing blank lines from all and removing comments from SAS."
-    )
-
-    parser.add_argument("dir_or_git", metavar="dir-or-git",
-                        help="Either a path to a directory, or a link to a Git Repo")
-    parser.add_argument('-o', '--output-dir', help="Path to output folder. Defaults to ./out")
-    parser.add_argument('-b', '--branch', help="Branch name - only for git links")
-
+def main():
+    parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
+    parser.add_argument("source", help="Directory path or Git Repository URL")
+    parser.add_argument("-o", "--output", default="./out", help="Output folder (default: ./out)")
+    parser.add_argument("-b", "--branch", help="Specific git branch to clone")
     args = parser.parse_args()
 
-    main(args.dir_or_git, args.branch, args.output_dir)
+    source_path = Path(args.source)
+    output_path = Path(args.output)
+    is_remote = False
+
+    # Validation and Cloning
+    if not source_path.is_dir():
+        try:
+            print(f"Validating and cloning: {args.source}")
+            git.cmd.Git().ls_remote(args.source)
+            repo = Repo.clone_from(args.source, GIT_DIR)
+            if args.branch:
+                repo.git.checkout(args.branch)
+            source_path, is_remote = GIT_DIR, True
+        except (GitCommandError, Exception) as e:
+            print(f"Error: Could not access path or Git URL. {e}")
+            return
+
+    try:
+        ext_data, dir_data = process_repository(source_path)
+        export_results(ext_data, dir_data, args.source, output_path)
+        print(f"Success! Reports generated in: {output_path.resolve()}")
+    finally:
+        if is_remote and GIT_DIR.exists():
+            shutil.rmtree(GIT_DIR)
+
+if __name__ == "__main__":
+    main()
