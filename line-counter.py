@@ -20,9 +20,6 @@ MD_FORMAT="""# {}
 {}
 """
 
-# TODO: add by directory level count - do not count subdir count in dir count. 
-# TODO: prettify output (later)
-
 # Source - https://stackoverflow.com/a
 # Posted by jfs, modified by community. See post 'Timeline' for change history
 # Retrieved 2026-01-27, License - CC BY-SA 3.0
@@ -90,7 +87,7 @@ def count_lines(files: list):
 
     return line_counts, line_counts_dir
 
-def create_pdf(line_count_ext, line_count_dir, title=""):
+def create_pdf(line_count_ext, line_count_dir, out_dir, title=""):
     df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
     df2 = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
 
@@ -102,17 +99,18 @@ def create_pdf(line_count_ext, line_count_dir, title=""):
     html = HTML(string=html_text)
     html.write_pdf('./out/LineCount.pdf', stylesheets=[css])
 
-def create_csv(line_count_ext, line_count_dir):
-    with open("./out/line_count_extensions.csv", "w") as f:
+def create_csv(line_count_ext, line_count_dir, out_dir):
+    with open("{}/line_count_extensions.csv".format(out_dir), "w") as f:
         df = pd.DataFrame(line_count_ext.items(), columns=["Extension", "Line Count"])
         f.write(df.to_csv())
-    with open("./out/line_count_directory.csv", "w") as f:
+    with open("{}/line_count_directory.csv".format(out_dir), "w") as f:
         df = pd.DataFrame(line_count_dir.items(), columns=["Directory", "Line Count"])
         f.write(df.to_csv())
 
-def main(dir_or_repo: str, branch: str = None):
+def main(dir_or_repo: str, branch: str = None, out_dir: str = None):
     # SETUP
     work_dir = dir_or_repo
+    out_dir = "./out" if not out_dir else out_dir
     is_git = False
     if not Path(dir_or_repo).is_dir():
         if not is_valid_git_url_gp(dir_or_repo):
@@ -157,7 +155,9 @@ if __name__ == '__main__':
 
     parser.add_argument("dir_or_git", metavar="dir-or-git",
                         help="Either a path to a directory, or a link to a Git Repo")
+    parser.add_argument('-o', '--output-dir', help="Path to output folder. Defaults to ./out")
+    parser.add_argument('-b', '--branch', help="Branch name - only for git links")
 
     args = parser.parse_args()
 
-    main(args.dir_or_git)
+    main(args.dir_or_git, args.branch, args.output_dir)

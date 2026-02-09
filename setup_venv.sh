@@ -1,4 +1,6 @@
-python3.11 -m venv venv &&
+if [ -d ./venv ]; then
+    python -m venv venv
+fi
 source ./venv/bin/activate &&
-python3.11 -m pip install --upgrade pip &&
-pip install -r requirements.txt 
+pip install -r requirements.txt &&
+python line-counter.py $@
