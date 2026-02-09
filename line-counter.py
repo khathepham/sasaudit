@@ -138,8 +138,8 @@ def main(dir_or_repo: str, branch: str = None, out_dir: str = None):
         print(json.dumps(line_count_ext, indent=4))
         print(json.dumps(line_count_dir, indent=4))
         Path("./out").mkdir(parents=True, exist_ok=True)
-        create_pdf(line_count_ext, line_count_dir, "Line Count for {}".format(dir_or_repo))
-        create_csv(line_count_ext, line_count_dir)
+        create_pdf(line_count_ext, line_count_dir, out_dir, "Line Count for {}".format(dir_or_repo))
+        create_csv(line_count_ext, line_count_dir, out_dir)
     # DELETE .TEMP IF NEEDED
     finally:
         if is_git:
