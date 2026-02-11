@@ -32,8 +32,8 @@ def count_lines_in_file(path: Path) -> int:
         encoding = "windows-1252" if ext == ".sas" else "utf-8"
         with path.open(mode="r", encoding=encoding, errors="ignore") as f:
             if ext == ".sas":
-                return sum(1 for line in f if (s := line.strip()) and not s.startswith("/*"))
-            return sum(1 for line in f if line.strip())
+                return sum(1 for line in f if (s := line.strip()) and not s.startswith("/*")) # Ignore comments and blanks if it's a sas file
+            return sum(1 for line in f if line.strip()) # ignores blank lines
     except Exception:
         return 0
 
