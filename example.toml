@@ -1,0 +1,28 @@
+[defaults]
+# Set the required values. All values here are required. 
+# Overridable at the repo level.
+user_id = "N/A"
+cost_center = "739"
+program_supported = "CE"
+business_process = "CE Processing"
+app_category = "Production"
+location = "Server"
+output = "./out"
+
+
+# List Repos
+[repo]
+
+# Name of the project after '.' 
+[repo.EES]
+# Source can be Directory or Git SSH/HTTPS link
+# Required
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
+# You can specify the branch of a git repo. Defaults to Main/Master
+# branch = "main"
+
+# You can override defaults here
+business_process = "Process EES/Phase 3 Data for CE"
+
+[repo.IES]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
