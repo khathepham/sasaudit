@@ -7,7 +7,7 @@ program_supported = "CE"
 business_process = "CE Processing"
 app_category = "Production"
 location = "Server"
-output = "./out"
+output = "./out2"
 
 
 # List Repos

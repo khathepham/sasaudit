@@ -68,68 +68,72 @@ def count_lines_in_binary(path: Path) -> int:
     return 0
 
 def process_repository(root_path: Path):
-    """Walks the directory and aggregates counts, skipping hidden git files."""
-    ext_counts, dir_counts, all_counts = {}, {}, {}
+    """Walks the directory and aggregates counts into a list of dicts."""
+    records = []
 
     for file_path in root_path.rglob('*'):
-        # Ignore .git directory and the .gitignore file
-        if file_path.is_file() and ".git" not in file_path.parts and file_path.name != ".gitignore":
-            if is_binary(file_path):
-                continue
-                
+        # Skip hidden files/folders and specific git metadata
+        if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
+            
+            # Use your existing line count logic (recommendation 2)
             count = count_lines_in_file(file_path)
+            
             if count > 0:
-                ext = file_path.suffix or "no_ext"
-                # Relative path for cleaner reporting
-                parent = str(file_path.parent.relative_to(root_path))
-                ext_counts[ext] = ext_counts.get(ext, 0) + count
-                dir_counts[parent] = dir_counts.get(parent, 0) + count
-                all_counts[file_path] = count
+                records.append({
+                    "File Name": file_path.name,
+                    "Extension": file_path.suffix.lower() or "no_ext",
+                    "Directory": str(file_path.parent.relative_to(root_path)),
+                    "Line Count": count
+                })
 
-    return ext_counts, dir_counts, all_counts
+    return pd.DataFrame(records)
 
-def export_results(ext_counts, dir_counts, all_counts, args: Arguments):
-    """Generates PDF (with original CSS) and CSV files."""
+
+def export_results(df: pd.DataFrame, args: Arguments):
+    """Generates PDF and CSV files using Pandas aggregation."""
     args.output.mkdir(parents=True, exist_ok=True)
+
+    # 1. Generate Summary DataFrames via GroupBy
+    df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
+    df_dir = df.groupby("Directory")["Line Count"].sum().reset_index()
+
+    # 2. SAS vs Non-SAS Grand Totals
+    # Create a boolean mask to split the data
+    is_sas = df["Extension"] == ".sas"
+    summary_data = {
+        "Total Non-SAS": df.loc[~is_sas, "Line Count"].sum(),
+        "Total SAS": df.loc[is_sas, "Line Count"].sum(),
+        "Grand Total": df["Line Count"].sum()
+    }
+    # Convert dict to markdown table for the PDF
+    ext_sum_md = pd.Series(summary_data).to_frame("Line Count").to_markdown()
+
+    # 3. Generate CSVs
+    # Full file list already contains metadata columns injected in process_single_repo
+    df.to_csv(args.output / f"{args.name}_file_details.csv", index=False)
+    df_ext.to_csv(args.output / f"{args.name}_ext_summary.csv", index=False)
+    df_dir.to_csv(args.output / f"{args.name}_dir_summary.csv", index=False)
+
+    # 4. Generate PDF
+    md_engine = MarkdownIt().enable('table')
+    html_content = md_engine.render(MD_FORMAT.format(
+        args.name, 
+        df_ext.to_markdown(index=False), 
+        ext_sum_md, 
+        df_dir.to_markdown(index=False)
+    ))
     
-    ext_counts_sum = {}
-    ext_counts_sum["Total Non-SAS"] = sum([v for k, v in ext_counts.items() if k != ".sas" ])
-    ext_counts_sum["Total SAS"] = ext_counts.get(".sas", 0)
-    ext_counts_sum["Grand Total"] = sum(ext_counts.values())
-    ext_sum_md = tabulate(ext_counts_sum.items(), tablefmt="github")
-
-
-    df_ext = pd.DataFrame(ext_counts.items(), columns=["Extension", "Line Count"])
-    df_dir = pd.DataFrame(dir_counts.items(), columns=["Directory", "Line Count"])
-    
-    df_all = pd.DataFrame(all_counts.items(), columns=["File Name", "Line Count"])
-    df_all["User ID"] = args.user_id
-    df_all["Cost Center"] = args.cost_center
-    df_all["Program Supported"] = args.program_supported
-    df_all["Business Process"] = args.business_process
-
-    # Generate CSVs
-    df_ext.to_csv(args.output / "{}_line_count_extensions.csv".format(args.name), index=False)
-    df_dir.to_csv(args.output / "{}_line_count_directory.csv".format(args.name), index=False)
-    df_all.to_csv(args.output / "{}_line_count_file.csv".format(args.name), index=False)
-
-    
-
-    # Generate PDF using original style.css
-    md = MarkdownIt().enable('table')
-    html_content = md.render(MD_FORMAT.format(args.name, df_ext.to_markdown(index=False), ext_sum_md,  df_dir.to_markdown(index=False)))
-    
-    # Locate style.css (assumes it is in the script's directory)
     css_path = Path("style.css")
     stylesheets = [CSS(filename=str(css_path))] if css_path.exists() else []
     
-    HTML(string=html_content).write_pdf(args.output / "{}_LineCount.pdf".format(args.name), stylesheets=stylesheets)
+    pdf_path = args.output / f"{args.name}_LineCount.pdf"
+    HTML(string=html_content).write_pdf(pdf_path, stylesheets=stylesheets)
 
 
 def process_single_repo(args: Arguments):
     source_path = Path(args.source)
     
-    # Use a context manager that we only 'activate' if we actually need a temp folder
+    # Use temp folder if we need to use git
     with tempfile.TemporaryDirectory() as tmp_dir:
         working_path = source_path
         
@@ -152,7 +156,7 @@ def process_single_repo(args: Arguments):
                 args.name = source_path.name
 
         # Process using the determined path
-        df_ext, df_dir, df_all, = process_repository(working_path)
+        df_all = process_repository(working_path)
         
         # Inject metadata for the CSV export
         metadata_fields = {
@@ -164,7 +168,7 @@ def process_single_repo(args: Arguments):
         for col, val in metadata_fields.items():
             df_all[col] = val
 
-        export_results(df_ext, df_dir, df_all, args)
+        export_results(df_all, args)
         print(f"Success! Reports generated for: {args.name}")
 
 def verify_toml(toml: dict):
@@ -181,7 +185,7 @@ def verify_toml(toml: dict):
     for repo, v in toml["repo"].items():
         assert v["source"], "No source selected for {}".format(repo)
 
-def process_batch(toml_data: list):
+def process_batch(toml_data: dict):
     defaults = toml_data.get("defaults", {})
     
     for repo_name, config in toml_data.get("repo", {}).items():
@@ -220,29 +224,24 @@ def main():
     parser.add_argument("-z", "--business-process", default="N/A", help="Set Business Process")
     parser.add_argument("-l", "--location", default="N/A", help="Where the program runs, on Server, Desktop, etc, etc.")
     parser.add_argument("-a", "--app-category", default="N/A", help="Category of the App, Prod, Dev, etc.")
-
+ 
     parser.add_argument("--count-sas7bdat", help="Count sas7bdat files", action="store_true")
 
     args = parser.parse_args()
 
 
     if args.batch:
-        config = {}
-        try:
-            config = tomllib.load(open(args.batch, 'rb'))
-        except tomllib.TOMLDecodeError as e:
-            print("TOML File not formatted correctly.")
-            print(e.with_traceback())
-        assert len(config) > 0, "Config File is Empty"
-        verify_toml(config)
-
-        global DEFAULT_ARGS
-        process_batch(config)
-
-
+        batch_path = Path(args.batch)
+        if not batch_path.exists():
+            return print(f"Error: TOML file not found at {batch_path}")
+            
+        with open(batch_path, "rb") as f:
+            data = tomllib.load(f)
+            verify_toml(data) # Using your existing verification logic
+            process_batch(data)
 
     else:
-        assert Path(args.output).is_dir(), "Output Isn't a Directory, or Doesn't Exist"
+        assert Path(args.output), "Output Isn't a Directory, or Doesn't Exist"
         arguments = Arguments(
             name = None,
             source = args.source,
