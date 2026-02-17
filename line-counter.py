@@ -9,6 +9,7 @@ from git import Repo
 from markdown_it import MarkdownIt
 from weasyprint import HTML, CSS
 from tabulate import tabulate
+import re
 
 
 
@@ -63,20 +64,44 @@ def count_lines_in_file(path: Path) -> int:
     except Exception:
         return 0
 
+def check_dependancies(path: Path, filenames_to_check: list) -> str:
+    dependency_set = set()
+    print(path)
+
+    try:
+        if path.suffix.lower() != ".sas":
+            raise Exception
+        with open(path, 'r', encoding="windows-1252") as f:
+            for line in f:
+                for d in filenames_to_check:
+                    index_pos = line.casefold().find(d.casefold())
+                    if index_pos != -1:
+                        # check if there is %, %include or call execute then add to dependency list
+                        if '%' == line[index_pos - 1] or 'include' in line.lower() or 'call execute' in line.lower():
+                            dependency_set.add(d)
+        dependency_set.discard(path.stem)
+        return ", ".join(map(str, dependency_set))
+    except:
+        return ""
+
 # --- Processing Logic ---
 
 def process_repository(root_path: Path) -> pd.DataFrame:
     """Walks directory and aggregates counts into a DataFrame."""
     records = []
+    filenames =  [Path(fp).stem for fp in root_path.rglob('*') if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts)]
+
     for file_path in root_path.rglob('*'):
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
             count = count_lines_in_file(file_path)
+            dependancies = check_dependancies(file_path, filenames)
             if count > 0:
                 records.append({
                     "File Name": file_path.name,
                     "Extension": file_path.suffix.lower() or "no_ext",
                     "Directory": str(file_path.parent.relative_to(root_path)),
-                    "Line Count": count
+                    "Line Count": count,
+                    "dependancies": dependancies
                 })
     return pd.DataFrame(records)
 
@@ -86,6 +111,7 @@ def export_results(df: pd.DataFrame, args: Arguments):
 
     df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
     df_dir = df.groupby("Directory")["Line Count"].sum().reset_index()
+    df_files = df.copy().drop("Extension", axis=1)
 
     is_sas = df["Extension"] == ".sas"
     summary_data = {
@@ -98,7 +124,7 @@ def export_results(df: pd.DataFrame, args: Arguments):
         tablefmt="github"
     )
     # CSV Exports
-    df.to_csv(args.output / f"{args.name}_file_details.csv", index=False)
+    df_files.to_csv(args.output / f"{args.name}_file_details.csv", index=False)
     df_ext.to_csv(args.output / f"{args.name}_ext_summary.csv", index=False)
     df_dir.to_csv(args.output / f"{args.name}_dir_summary.csv", index=False)
 
