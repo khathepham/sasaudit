@@ -26,3 +26,7 @@ business_process = "Process EES/Phase 3 Data for CE"
 
 [repo.IES]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
+
+[repo.Shared]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
+
