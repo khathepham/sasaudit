@@ -7,7 +7,7 @@ program_supported = "CE"
 business_process = "CE Processing"
 app_category = "Production"
 location = "Server"
-output = "./out2"
+output = "./out"
 
 
 # List Repos
@@ -20,6 +20,10 @@ output = "./out2"
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
 # You can specify the branch of a git repo. Defaults to Main/Master
 # branch = "main"
+
+# You can add extra repo's to scan for dependencies for this project.
+# For example, EES is dependent on dceis-shared, so we add the repo here
+# So it can check which EES files are dependent on which shared file. 
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 # You can override defaults here

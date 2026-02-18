@@ -95,11 +95,11 @@ def get_extra_dependencies(extra_dependency_paths: list) -> list:
             working_path = source_path
             if not source_path.is_dir():
                 try:
-                    print(f"Cloning: {d}")
+                    # print(f"Cloning: {d}")
                     Repo.clone_from(d, tmp_dir)
                     working_path = Path(tmp_dir)
                 except Exception as e:
-                    print(f"Error: {e}")
+                    print("Unable to get dependencies for {}.\nError: {}".format(d, e))
                     return []
             extra_dependencies.extend([
                 fp.stem for fp in working_path.rglob('*') if fp.is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"
@@ -133,13 +133,13 @@ def export_results(df: pd.DataFrame, args: Arguments):
     """Generates PDF and CSV files."""
     print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
-    df = df.copy()
+    df_dir = df.copy()
 
-    df['is_sas'] = df['Extension'].eq('.sas').astype(int)
-    df['is_not_sas'] = df['Extension'].ne('.sas').astype(int)
+    df_dir['is_sas'] = df_dir['Extension'].eq('.sas').astype(int)
+    df_dir['is_not_sas'] = df_dir['Extension'].ne('.sas').astype(int)
 
     df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
-    df_dir = df.groupby("Directory").apply(lambda x: pd.Series({
+    df_dir = df_dir.groupby("Directory")[["Directory", "Line Count", "is_sas", "is_not_sas"]].apply(lambda x: pd.Series({
         "Total Count": x['Line Count'].sum(),
         "SAS Count": (x["is_sas"] * x['Line Count']).sum(),
         "Non-SAS Count": (x["is_not_sas"] * x['Line Count']).sum()
