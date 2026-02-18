@@ -47,7 +47,7 @@ Git link can be ssh or http.
 ### Flags
 
 ## Base Flags
-These flags control how the program runs.
+These flags control how the program runs. Other than --toml, these flags are able to be set in the TOML configuration file. 
 
 | Flag | Long Form | Description | Default |
 | :--- | :--- | :--- | :--- |
@@ -58,7 +58,7 @@ These flags control how the program runs.
 | `-b` | `--branch` | Specific Git branch to checkout | `main` |
 
 ## Output Flags
-These flags add values to the file_details.csv output.
+These flags add values to the file_details.csv output. These flags are able to be set in the TOML configuration file. 
 
 | Flag | Long Form | Description | Default |
 | :--- | :--- | :--- | :--- |
