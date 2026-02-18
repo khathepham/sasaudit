@@ -31,14 +31,14 @@ Create a TOML file. There is an example at [example.toml](./example.toml).
 
 Run the program using:
 ```sh
-python line-counter -t example.toml
+python sasaudit.py -t example.toml
 ```
 
 ### Single Directory CLI
 
 To run it with defaults: 
 ```sh
-python line-counter -s "/path/to/project" -o "./reports"
+python sasaudit.py -s "/path/to/project" -o "./reports"
 ```
 
 
