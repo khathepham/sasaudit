@@ -20,13 +20,17 @@ output = "./out2"
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
 # You can specify the branch of a git repo. Defaults to Main/Master
 # branch = "main"
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 # You can override defaults here
 business_process = "Process EES/Phase 3 Data for CE"
 
 [repo.IES]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
+business_process = "Process IES/Phase 2 Data for CE"
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
+
 
 [repo.Shared]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
-
+business_process = "Shared Functions for IES/Phase 2 and EES/Phase 3"

@@ -9,7 +9,6 @@ from git import Repo
 from markdown_it import MarkdownIt
 from weasyprint import HTML, CSS
 from tabulate import tabulate
-import re
 
 
 
@@ -17,6 +16,9 @@ import re
 TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
 CSS_PATH = Path("./style.css")
 STYLESHEET = [CSS(filename=str(CSS_PATH))] if CSS_PATH.exists() else []
+
+# TODO: Add additional dependencies option
+# TODO: (CEIS Specific) Check with robert for systems that aren't in production anymore.
 
 
 MD_FORMAT = """# {}
@@ -39,6 +41,7 @@ class Arguments:
     location: str
     output: Path
     user_id: str
+    extra_dependencies: list
 
 # --- Utility Functions ---
 
@@ -66,8 +69,6 @@ def count_lines_in_file(path: Path) -> int:
 
 def check_dependancies(path: Path, filenames_to_check: list) -> str:
     dependency_set = set()
-    print(path)
-
     try:
         if path.suffix.lower() != ".sas":
             raise Exception
@@ -84,12 +85,35 @@ def check_dependancies(path: Path, filenames_to_check: list) -> str:
     except:
         return ""
 
+def get_extra_dependencies(extra_dependency_paths: list) -> list:
+    extra_dependencies = []
+    if not extra_dependency_paths:
+        return []
+    for d in extra_dependency_paths:
+        source_path = Path(d)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            working_path = source_path
+            if not source_path.is_dir():
+                try:
+                    print(f"Cloning: {d}")
+                    Repo.clone_from(d, tmp_dir)
+                    working_path = Path(tmp_dir)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    return []
+            extra_dependencies.extend([
+                fp.stem for fp in working_path.rglob('*') if fp.is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"
+            ])
+    return extra_dependencies
+            
 # --- Processing Logic ---
 
-def process_repository(root_path: Path) -> pd.DataFrame:
+def process_repository(root_path: Path, extra_dependency_paths: list = []) -> pd.DataFrame:
     """Walks directory and aggregates counts into a DataFrame."""
+    print("Processing Repository...")
     records = []
-    filenames =  [Path(fp).stem for fp in root_path.rglob('*') if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts)]
+    filenames =  [Path(fp).stem for fp in root_path.rglob('*') if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"]
+    filenames.extend(get_extra_dependencies(extra_dependency_paths))
 
     for file_path in root_path.rglob('*'):
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
@@ -107,10 +131,19 @@ def process_repository(root_path: Path) -> pd.DataFrame:
 
 def export_results(df: pd.DataFrame, args: Arguments):
     """Generates PDF and CSV files."""
+    print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
+    df = df.copy()
+
+    df['is_sas'] = df['Extension'].eq('.sas').astype(int)
+    df['is_not_sas'] = df['Extension'].ne('.sas').astype(int)
 
     df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
-    df_dir = df.groupby("Directory")["Line Count"].sum().reset_index()
+    df_dir = df.groupby("Directory").apply(lambda x: pd.Series({
+        "Total Count": x['Line Count'].sum(),
+        "SAS Count": (x["is_sas"] * x['Line Count']).sum(),
+        "Non-SAS Count": (x["is_not_sas"] * x['Line Count']).sum()
+    })).reset_index()
     df_files = df.copy().drop("Extension", axis=1)
 
     is_sas = df["Extension"] == ".sas"
@@ -165,7 +198,7 @@ def process_single_repo(args: Arguments):
             if not args.name:
                 args.name = source_path.name
 
-        df_all = process_repository(working_path)
+        df_all = process_repository(working_path, args.extra_dependencies)
         
         # Inject metadata
         metadata_fields = {
@@ -216,6 +249,7 @@ def main():
     parser.add_argument("-z", "--business-process", default="N/A", help="Set Business Process")
     parser.add_argument("-l", "--location", default="N/A", help="Where the program runs, on Server, Desktop, etc, etc.")
     parser.add_argument("-a", "--app-category", default="N/A", help="Category of the App, Prod, Dev, etc.")
+    parser.add_argument("--extra-dependencies", nargs='*', default=[], help="Extra repositories to check for SAS dependencies")
 
     args = parser.parse_args()
 
