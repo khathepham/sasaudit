@@ -118,14 +118,14 @@ def process_repository(root_path: Path, extra_dependency_paths: list = []) -> pd
     for file_path in root_path.rglob('*'):
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
             count = count_lines_in_file(file_path)
-            dependancies = check_dependancies(file_path, filenames)
+            dependencies = check_dependancies(file_path, filenames)
             if count > 0:
                 records.append({
                     "File Name": file_path.name,
                     "Extension": file_path.suffix.lower() or "no_ext",
                     "Directory": str(file_path.parent.relative_to(root_path)),
                     "Line Count": count,
-                    "dependancies": dependancies
+                    "Dependencies": dependencies
                 })
     return pd.DataFrame(records)
 
@@ -140,9 +140,10 @@ def export_results(df: pd.DataFrame, args: Arguments):
 
     df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
     df_dir = df_dir.groupby("Directory")[["Directory", "Line Count", "is_sas", "is_not_sas"]].apply(lambda x: pd.Series({
-        "Total Count": x['Line Count'].sum(),
         "SAS Count": (x["is_sas"] * x['Line Count']).sum(),
-        "Non-SAS Count": (x["is_not_sas"] * x['Line Count']).sum()
+        "Non-SAS Count": (x["is_not_sas"] * x['Line Count']).sum(),
+        "Total Count": x['Line Count'].sum()
+
     })).reset_index()
     df_files = df.copy().drop("Extension", axis=1)
 
