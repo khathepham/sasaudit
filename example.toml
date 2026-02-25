@@ -15,7 +15,7 @@ output = "./out2"
 
 [repo.Shared]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
-business_process = "Shared Functions for IES/Phase 2 and EES/Phase 3"
+business_process = "Estimation, Publication"
 
 # Name of the project after '.'
 [repo.EES]
@@ -31,13 +31,13 @@ source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 # You can override defaults here
-business_process = "Process EES/Phase 3 Data for CE"
+business_process = "Estimation"
 exclude = [ "*.for" ]
 
 
 [repo.IES]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
-business_process = "Process IES/Phase 2 Data for CE"
+business_process = "Estimation"
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 
@@ -45,5 +45,5 @@ extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 [repo.Pubs_Microdata]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-pubs.git"
-business_process = "CE Publications and MicroData"
+business_process = "Publications"
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
