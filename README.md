@@ -23,53 +23,20 @@ pip install -r requirements.txt
 ```
 
 ## Running the program
-
-### Batch Processing (TOML) (!Recommended)
 Define your repositories in a TOML file. You can set global defaults for all repos.
 
 Create a TOML file. There is an example at [example.toml](./example.toml).
 
 Run the program using:
 ```sh
-python sasaudit.py -t example.toml
+python /path/to/sasaudit.py path/to/toml.toml
 ```
-When batch processing, all other flags will be ignored. 
-
-### Single Repository via Flags
-
-To run it with defaults: 
+Example
 ```sh
-python sasaudit.py -s "/path/to/project" -o "./reports"
+python sasaudit.py example.toml
 ```
 
 
-Git link can be ssh or http.
-
-### Flags
-
-#### Base Flags
-These flags control how the program runs. Other than --toml, these flags are able to be set in the TOML configuration file. 
-
-| Flag | Long Form | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `-s` | `--source` | Path to local directory or Git URL (HTTPS/SSH) | **This or `-t` Required** |
-| `-t` | `--toml` | Path to a TOML file for batch processing | **This or `-s` Required** |
-| `-n` | `--name` | Project name (used for report filenames) | Repo/Folder Name |
-| `-o` | `--output` | Directory where PDF and CSVs are saved | `./out` |
-| `-b` | `--branch` | Specific Git branch to checkout | `main` |
-
-### Output Flags
-These flags add values to the file_details.csv output. These flags are able to be set in the TOML configuration file. 
-
-| Flag | Long Form | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `-u` | `--user-id` | Employee or User ID of the project owner | `N/A` |
-| `-c` | `--cost-center` | Associated Cost Center for the project | `N/A` |
-| `-p` | `--program-supported` | The specific Program name supported | `N/A` |
-| `-z` | `--business-process` | What specific process this code supports | `N/A` |
-| `-l` | `--location` | Where this program runs, on Server, Desktop, etc. | `N/A` |
-| `-a` | `--app-category` | The Application Category classification | `N/A` |
-| `N/A` | `--extra-dependencies` | Paths/URLs to scan for additional SAS macros. Use a space sperated list. | `[]` |
 
 ## Stipulations
 See [Using Nexus Repo Manager > Pypi, aka pip(for python)](https://cfgitlabprd01v.psb.bls.gov/osmr/dsrc/dsrc-hq/-/wikis/using-nexus-repository-manager#pypi-aka-pip-for-python) for instructions on how to setup pip modules for your user/virtual environments without CNTLM. 
