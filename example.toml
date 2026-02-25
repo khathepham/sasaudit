@@ -7,13 +7,17 @@ program_supported = "CE"
 business_process = "CE Processing"
 app_category = "Production"
 location = "Server"
-output = "./out"
+output = "./out2"
 
 
 # List Repos
 [repo]
 
-# Name of the project after '.' 
+[repo.Shared]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
+business_process = "Shared Functions for IES/Phase 2 and EES/Phase 3"
+
+# Name of the project after '.'
 [repo.EES]
 # Source can be Directory or Git SSH/HTTPS link
 # Required
@@ -21,13 +25,15 @@ source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
 # You can specify the branch of a git repo. Defaults to Main/Master
 # branch = "main"
 
-# You can add extra repo's to scan for dependencies for this project.
+# You can add external repo's to scan for dependencies for this project.
 # For example, EES is dependent on dceis-shared, so we add the repo here
 # So it can check which EES files are dependent on which shared file. 
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 # You can override defaults here
 business_process = "Process EES/Phase 3 Data for CE"
+exclude = [ "*.for" ]
+
 
 [repo.IES]
 source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
@@ -35,6 +41,9 @@ business_process = "Process IES/Phase 2 Data for CE"
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 
-[repo.Shared]
-source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
-business_process = "Shared Functions for IES/Phase 2 and EES/Phase 3"
+
+
+[repo.Pubs_Microdata]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-pubs.git"
+business_process = "CE Publications and MicroData"
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]

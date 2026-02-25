@@ -9,7 +9,7 @@ from git import Repo
 from markdown_it import MarkdownIt
 from weasyprint import HTML, CSS
 from tabulate import tabulate
-
+import re
 
 
 # --- Configuration & Templates ---
@@ -42,6 +42,7 @@ class Arguments:
     output: Path
     user_id: str
     extra_dependencies: list
+    exclude: list
 
 # --- Utility Functions ---
 
@@ -85,10 +86,10 @@ def check_dependancies(path: Path, filenames_to_check: list) -> str:
     except:
         return ""
 
-def get_extra_dependencies(extra_dependency_paths: list) -> list:
-    extra_dependencies = []
+def get_extra_dependencies(extra_dependency_paths: list) -> dict:
+    extra_dependencies = {}
     if not extra_dependency_paths:
-        return []
+        return {}
     for d in extra_dependency_paths:
         source_path = Path(d)
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -100,22 +101,40 @@ def get_extra_dependencies(extra_dependency_paths: list) -> list:
                     working_path = Path(tmp_dir)
                 except Exception as e:
                     print("Unable to get dependencies for {}.\nError: {}".format(d, e))
-                    return []
-            extra_dependencies.extend([
-                fp.stem for fp in working_path.rglob('*') if fp.is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"
-            ])
-    return extra_dependencies
+                    return {}
+            paths = [
+                fp for fp in working_path.rglob('*') if fp.is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"
+            ]
+            extra_dependencies = {path.stem: check_oracle_calls(path) for path in paths}
             
+    return extra_dependencies
+
+def check_oracle_calls(sas_path: Path):
+    calling_oracle_pattern = re.compile(r'(?i)libname\s+\w+\s+oracle\s+.*', re.IGNORECASE)
+    with open(sas_path, 'r', encoding="windows-1252") as f:
+            for line in f:
+                if "connect to oracle" in line.lower() or any(calling_oracle_pattern.finditer(line)):
+                    return True
+    return False
+
 # --- Processing Logic ---
 
-def process_repository(root_path: Path, extra_dependency_paths: list = []) -> pd.DataFrame:
+def process_repository(root_path: Path, extra_dependency_paths: list = [], excluded_patterns: list = []) -> pd.DataFrame:
     """Walks directory and aggregates counts into a DataFrame."""
     print("Processing Repository...")
     records = []
     filenames =  [Path(fp).stem for fp in root_path.rglob('*') if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"]
-    filenames.extend(get_extra_dependencies(extra_dependency_paths))
+    extra_dependencies = get_extra_dependencies(extra_dependency_paths)
+    filenames.extend(extra_dependencies.keys())
 
-    for file_path in root_path.rglob('*'):
+    all_files = root_path.rglob('*')
+
+    filtered_files = [
+        path for path in all_files
+        if not excluded_patterns or not any(path.match(pattern) for pattern in excluded_patterns )
+    ]
+
+    for file_path in filtered_files:
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
             count = count_lines_in_file(file_path)
             dependencies = check_dependancies(file_path, filenames)
@@ -125,7 +144,8 @@ def process_repository(root_path: Path, extra_dependency_paths: list = []) -> pd
                     "Extension": file_path.suffix.lower() or "no_ext",
                     "Directory": str(file_path.parent.relative_to(root_path)),
                     "Line Count": count,
-                    "Dependencies": dependencies
+                    "Dependencies": dependencies,
+                    "Oracle Calls": any(extra_dependencies.get(d, False) == True for d in dependencies) or check_oracle_calls(file_path)
                 })
     return pd.DataFrame(records)
 
@@ -199,7 +219,7 @@ def process_single_repo(args: Arguments):
             if not args.name:
                 args.name = source_path.name
 
-        df_all = process_repository(working_path, args.extra_dependencies)
+        df_all = process_repository(working_path, args.extra_dependencies, args.exclude)
         
         # Inject metadata
         metadata_fields = {
@@ -222,55 +242,33 @@ def process_batch(toml_file: str):
         toml_data = tomllib.load(f)
     
     defaults = toml_data.get("defaults", {})
-    valid_keys = {f.name for f in fields(Arguments)}
 
     for repo_name, config in toml_data.get("repo", {}).items():
-        merged = {**defaults, **config, "name": repo_name}
-        filtered = {k: v for k, v in merged.items() if k in valid_keys}
-        for k in valid_keys:
-            filtered.setdefault(k, None)
-        if filtered.get('output'):
-            filtered['output'] = Path(filtered['output'])
-            
-        process_single_repo(Arguments(**filtered))
+        args = create_arguments(repo_name, config, defaults)
+        process_single_repo(args)
+
+
+def create_arguments(repo_name, config, defaults) -> Arguments:
+    valid_keys = {f.name for f in fields(Arguments)}
+    merged = {**defaults, **config, "name": repo_name}
+    filtered = {k: v for k, v in merged.items() if k in valid_keys}
+    for k in valid_keys:
+        filtered.setdefault(k, None)
+    if filtered.get('output'):
+        filtered['output'] = Path(filtered['output'])
+    return Arguments(**filtered)
 
 def main():
     parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
 
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("-s", "--source", help="Directory path or Git Repository URL")
-    group.add_argument("-t", "--batch", help="Path to TOML for batch processing")
-    parser.add_argument("-o", "--output", default="./out", help="Output folder")
-    parser.add_argument("-b", "--branch", help="Specific git branch to clone")
-    
-    # Metadata Args
-    parser.add_argument("-u", "--user-id", default="N/A", help="Set ID of User for full output, if using git repo.")
-    parser.add_argument("-c", "--cost-center", default="N/A", help="Set cost center")
-    parser.add_argument("-p", "--program-supported", default="N/A", help="Set Program Office")
-    parser.add_argument("-z", "--business-process", default="N/A", help="Set Business Process")
-    parser.add_argument("-l", "--location", default="N/A", help="Where the program runs, on Server, Desktop, etc, etc.")
-    parser.add_argument("-a", "--app-category", default="N/A", help="Category of the App, Prod, Dev, etc.")
-    parser.add_argument("--extra-dependencies", nargs='*', default=[], help="Extra repositories to check for SAS dependencies")
+    parser.add_argument("batch", help="Path to TOML for batch processing")
+
 
     args = parser.parse_args()
 
     if args.batch:
         process_batch(args.batch)
-    else:
-        # Map all parser arguments to the dataclass
-        cli_args = Arguments(
-            name=None,
-            source=args.source,
-            branch=args.branch,
-            cost_center=args.cost_center,
-            program_supported=args.program_supported,
-            business_process=args.business_process,
-            app_category=args.app_category,
-            location=args.location,
-            output=Path(args.output),
-            user_id=args.user_id
-        )
-        process_single_repo(cli_args)
+
 
 if __name__ == "__main__":
     main()
