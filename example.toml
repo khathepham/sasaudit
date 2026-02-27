@@ -8,14 +8,11 @@ business_process = "CE Processing"
 app_category = "Production"
 location = "Server"
 output = "./out2"
-
+exclude = []
 
 # List Repos
 [repo]
 
-[repo.Shared]
-source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
-business_process = "Estimation, Publication"
 
 # Name of the project after '.'
 [repo.EES]
@@ -32,7 +29,10 @@ extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
 # You can override defaults here
 business_process = "Estimation"
+# Exclude will check the tail for matches and remove them from the line count.
+# Should be formatted similarly to a .gitignore as a list. 
 exclude = [ "*.for" ]
+
 
 
 [repo.IES]
@@ -40,7 +40,9 @@ source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
 business_process = "Estimation"
 extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
 
-
+[repo.Shared]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
+business_process = "Estimation, Publication"
 
 
 [repo.Pubs_Microdata]
