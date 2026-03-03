@@ -237,14 +237,9 @@ def create_arguments(repo_name, config, defaults):
 
 def main():
     parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
-
     parser.add_argument("batch", help="Path to TOML for batch processing")
-
-
     args = parser.parse_args()
-
-    if args.batch:
-        process_batch(args.batch)
+    process_batch(args.batch)
 
 
 if __name__ == "__main__":
