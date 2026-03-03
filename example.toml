@@ -4,10 +4,11 @@
 user_id = "N/A"
 cost_center = "739"
 program_supported = "CE"
-business_process = "CE Processing"
+
+business_process = "CE Processing" # Generally Collection, Estimation, Publication
 app_category = "Production"
 location = "Server"
-output = "./out2"
+output = "./out3"
 exclude = []
 
 # List Repos

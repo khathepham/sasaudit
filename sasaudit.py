@@ -1,7 +1,6 @@
 import argparse
 import tempfile
 import tomllib
-from dataclasses import dataclass, fields
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +8,7 @@ from git import Repo
 from markdown_it import MarkdownIt
 from weasyprint import HTML, CSS
 from tabulate import tabulate
+from types import SimpleNamespace
 import re
 
 
@@ -16,9 +16,6 @@ import re
 TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
 CSS_PATH = Path("./style.css")
 STYLESHEET = [CSS(filename=str(CSS_PATH))] if CSS_PATH.exists() else []
-
-# TODO: Add additional dependencies option
-# TODO: (CEIS Specific) Check with robert for systems that aren't in production anymore.
 
 
 MD_FORMAT = """# {}
@@ -28,21 +25,7 @@ MD_FORMAT = """# {}
 ## Line Count by Directory
 {}
 """
-
-@dataclass
-class Arguments:
-    name: str
-    source: str
-    branch: str
-    cost_center: str
-    program_supported: str
-    business_process: str
-    app_category: str
-    location: str
-    output: Path
-    user_id: str
-    extra_dependencies: list
-    exclude: list
+REQUIRED_KEYS = ["branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
 
@@ -149,7 +132,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = [], exclu
                 })
     return pd.DataFrame(records)
 
-def export_results(df: pd.DataFrame, args: Arguments):
+def export_results(df: pd.DataFrame, args):
     """Generates PDF and CSV files."""
     print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
@@ -197,7 +180,7 @@ def export_results(df: pd.DataFrame, args: Arguments):
     pdf_path = args.output / f"{args.name}_LineCount.pdf"
     HTML(string=html_content).write_pdf(pdf_path, stylesheets=stylesheets)
 
-def process_single_repo(args: Arguments):
+def process_single_repo(args):
     """Handles logic for a single repository source."""
     source_path = Path(args.source)
     
@@ -248,15 +231,14 @@ def process_batch(toml_file: str):
         process_single_repo(args)
 
 
-def create_arguments(repo_name, config, defaults) -> Arguments:
-    valid_keys = {f.name for f in fields(Arguments)}
+def create_arguments(repo_name, config, defaults):
     merged = {**defaults, **config, "name": repo_name}
-    filtered = {k: v for k, v in merged.items() if k in valid_keys}
-    for k in valid_keys:
+    filtered = {k: v for k, v in merged.items()}
+    for k in REQUIRED_KEYS:
         filtered.setdefault(k, None)
     if filtered.get('output'):
         filtered['output'] = Path(filtered['output'])
-    return Arguments(**filtered)
+    return SimpleNamespace(**filtered)
 
 def main():
     parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
