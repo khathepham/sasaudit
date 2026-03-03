@@ -51,7 +51,7 @@ def count_lines_in_file(path: Path) -> int:
     except Exception:
         return 0
 
-def check_dependancies(path: Path, filenames_to_check: list) -> str:
+def check_dependencies(path: Path, filenames_to_check: list) -> str:
     dependency_set = set()
     try:
         if path.suffix.lower() != ".sas":
@@ -120,7 +120,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = [], exclu
     for file_path in filtered_files:
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
             count = count_lines_in_file(file_path)
-            dependencies = check_dependancies(file_path, filenames)
+            dependencies = check_dependencies(file_path, filenames)
             if count > 0:
                 records.append({
                     "File Name": file_path.name,
