@@ -1,0 +1,52 @@
+[defaults]
+# Set the required values. All values here are required. 
+# Overridable at the repo level.
+user_id = "N/A"
+cost_center = "739"
+program_supported = "CE"
+
+business_process = "CE Processing" # Generally Collection, Estimation, Publication
+app_category = "Production"
+location = "Server"
+output = "./out3"
+exclude = []
+
+# List Repos
+[repo]
+
+
+# Name of the project after '.'
+[repo.EES]
+# Source can be Directory or Git SSH/HTTPS link
+# Required
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
+# You can specify the branch of a git repo. Defaults to Main/Master
+# branch = "main"
+
+# You can add external repo's to scan for dependencies for this project.
+# For example, EES is dependent on dceis-shared, so we add the repo here
+# So it can check which EES files are dependent on which shared file. 
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
+
+# You can override defaults here
+business_process = "Estimation"
+# Exclude will check the tail for matches and remove them from the line count.
+# Should be formatted similarly to a .gitignore as a list. 
+exclude = [ "*.for" ]
+
+
+
+[repo.IES]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
+business_process = "Estimation"
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
+
+[repo.Shared]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
+business_process = "Estimation, Publication"
+
+
+[repo.Pubs_Microdata]
+source = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-pubs.git"
+business_process = "Publications"
+extra_dependencies = [ "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git" ]
