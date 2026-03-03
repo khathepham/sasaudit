@@ -79,7 +79,6 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
             working_path = source_path
             if not source_path.is_dir():
                 try:
-
                     Repo.clone_from(d, tmp_dir)
                     working_path = Path(tmp_dir)
                 except Exception as e:
