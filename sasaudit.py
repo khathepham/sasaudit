@@ -25,7 +25,7 @@ MD_FORMAT = """# {}
 ## Line Count by Directory
 {}
 """
-REQUIRED_KEYS = ["branch", "output", "extra_dependencies", "exclude"]
+REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
 
@@ -205,12 +205,7 @@ def process_single_repo(args):
         df_all = process_repository(working_path, args.extra_dependencies, args.exclude)
         
         # Inject metadata
-        metadata_fields = {
-            "User ID": args.user_id,
-            "Cost Center": args.cost_center,
-            "Program Supported": args.program_supported,
-            "Business Process": args.business_process
-        }
+        metadata_fields = {k: v for k, v in args.items(0) if k not in REQUIRED_KEYS}
         for col, val in metadata_fields.items():
             df_all[col] = val
 
