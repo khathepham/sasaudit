@@ -25,7 +25,7 @@ MD_FORMAT = """# {}
 ## Line Count by Directory
 {}
 """
-REQUIRED_KEYS = ["branch", "output", "extra_dependencies", "exclude"]
+REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
 
@@ -180,7 +180,7 @@ def export_results(df: pd.DataFrame, args):
     pdf_path = args.output / f"{args.name}_LineCount.pdf"
     HTML(string=html_content).write_pdf(pdf_path, stylesheets=stylesheets)
 
-def process_single_repo(args):
+def process_single_repo(args: SimpleNamespace):
     """Handles logic for a single repository source."""
     source_path = Path(args.source)
     
@@ -205,12 +205,7 @@ def process_single_repo(args):
         df_all = process_repository(working_path, args.extra_dependencies, args.exclude)
         
         # Inject metadata
-        metadata_fields = {
-            "User ID": args.user_id,
-            "Cost Center": args.cost_center,
-            "Program Supported": args.program_supported,
-            "Business Process": args.business_process
-        }
+        metadata_fields = {k: v for k, v in args.__dict__.items() if k not in REQUIRED_KEYS}
         for col, val in metadata_fields.items():
             df_all[col] = val
 
