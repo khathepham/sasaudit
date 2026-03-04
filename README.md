@@ -15,7 +15,7 @@ For each repository you point it at, SASAudit will:
   - Handle Windows-1252 encoding (common in legacy SAS files)
   - Detect which SAS files depend on other SAS files (via `%include`, `%macro`, `call execute`)
   - Detect Oracle database calls (`libname ... oracle` and `connect to oracle`)
-- Attach metadata to results (cost center, program name, etc.)
+- Attach metadata to results — any custom fields you define in the TOML will appear as columns in the CSV
 - Export everything to a **PDF summary report** and **three CSV files**
 
 ---
@@ -110,6 +110,8 @@ source = "/path/to/my/project"
 | `output` | No | Override the default output folder for this repo |
 | `extra_dependencies` | No | List of other repo paths/URLs to scan for cross-repo SAS dependencies |
 | `exclude` | No | List of file patterns to skip for this repo (overrides defaults) |
+
+**Metadata fields** — Any other key you add (e.g. `cost_center`, `business_process`, `user_id`) will automatically appear as a column in the file details CSV. Add as many or as few as you need. These can be set in `[defaults]` and overridden per repo.
 
 Any `[defaults]` key can be overridden inside a specific `[repo.Name]` block.
 
