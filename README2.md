@@ -99,6 +99,10 @@ source = "/path/to/my/project"
 | Key | Description |
 |-----|-------------|
 | `output` | Folder where reports will be saved (created automatically if it doesn't exist) |
+| `user_id` | User ID to embed in the report |
+| `cost_center` | Cost center code |
+| `program_supported` | Program name (e.g. `"CE"`) |
+| `business_process` | Description of the business process |
 | `exclude` | List of file patterns to skip (e.g. `["*.for", "*.log"]`) |
 
 **In each `[repo.Name]`** — configure each individual repository:
@@ -118,15 +122,14 @@ Any `[defaults]` key can be overridden inside a specific `[repo.Name]` block.
 ```toml
 [defaults]
 output = "./reports"
-exclude = []
 cost_center = "739"
 program_supported = "MY_PROGRAM"
-business_process = "Estimations"
-
+business_process = "Data Processing"
+exclude = []
 
 [repo.MyProject]
 source = "/home/user/projects/myproject"
-business_process = "Publications"
+business_process = "Estimation"
 ```
 
 ### Example: Remote Git Repository

@@ -25,7 +25,7 @@ MD_FORMAT = """# {}
 ## Line Count by Directory
 {}
 """
-REQUIRED_KEYS = ["branch", "output", "extra_dependencies", "exclude"]
+REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
 
@@ -51,11 +51,11 @@ def count_lines_in_file(path: Path) -> int:
     except Exception:
         return 0
 
-def check_dependancies(path: Path, filenames_to_check: list) -> str:
+def check_dependencies(path: Path, filenames_to_check: list) -> str:
     dependency_set = set()
     try:
         if path.suffix.lower() != ".sas":
-            raise Exception
+            return ""
         with open(path, 'r', encoding="windows-1252") as f:
             for line in f:
                 for d in filenames_to_check:
@@ -79,12 +79,12 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
             working_path = source_path
             if not source_path.is_dir():
                 try:
-                    # print(f"Cloning: {d}")
+
                     Repo.clone_from(d, tmp_dir)
                     working_path = Path(tmp_dir)
                 except Exception as e:
                     print("Unable to get dependencies for {}.\nError: {}".format(d, e))
-                    return {}
+                    continue
             paths = [
                 fp for fp in working_path.rglob('*') if fp.is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"
             ]
@@ -93,7 +93,7 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
     return extra_dependencies
 
 def check_oracle_calls(sas_path: Path):
-    calling_oracle_pattern = re.compile(r'(?i)libname\s+\w+\s+oracle\s+.*', re.IGNORECASE)
+    calling_oracle_pattern = re.compile(r'(?i)libname\s+\w+\s+oracle\s+.*')
     with open(sas_path, 'r', encoding="windows-1252") as f:
             for line in f:
                 if "connect to oracle" in line.lower() or any(calling_oracle_pattern.finditer(line)):
@@ -102,12 +102,12 @@ def check_oracle_calls(sas_path: Path):
 
 # --- Processing Logic ---
 
-def process_repository(root_path: Path, extra_dependency_paths: list = [], excluded_patterns: list = []) -> pd.DataFrame:
+def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None) -> pd.DataFrame:
     """Walks directory and aggregates counts into a DataFrame."""
     print("Processing Repository...")
     records = []
     filenames =  [Path(fp).stem for fp in root_path.rglob('*') if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts) and fp.suffix.lower() == ".sas"]
-    extra_dependencies = get_extra_dependencies(extra_dependency_paths)
+    extra_dependencies = get_extra_dependencies(extra_dependency_paths if extra_dependency_paths else [])
     filenames.extend(extra_dependencies.keys())
 
     all_files = root_path.rglob('*')
@@ -120,7 +120,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = [], exclu
     for file_path in filtered_files:
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
             count = count_lines_in_file(file_path)
-            dependencies = check_dependancies(file_path, filenames)
+            dependencies = check_dependencies(file_path, filenames)
             if count > 0:
                 records.append({
                     "File Name": file_path.name,
@@ -128,7 +128,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = [], exclu
                     "Directory": str(file_path.parent.relative_to(root_path)),
                     "Line Count": count,
                     "Dependencies": dependencies,
-                    "Oracle Calls": any(extra_dependencies.get(d, False) == True for d in dependencies) or check_oracle_calls(file_path)
+                    "Oracle Calls": any(extra_dependencies.get(d, False) == True for d in dependencies.split(", ") if dependencies) or check_oracle_calls(file_path)
                 })
     return pd.DataFrame(records)
 
@@ -173,14 +173,12 @@ def export_results(df: pd.DataFrame, args):
         ext_sum_md, 
         df_dir.to_markdown(index=False)
     ))
-    
-    css_path = Path("style.css")
-    stylesheets = [CSS(filename=str(css_path))] if css_path.exists() else []
+
     
     pdf_path = args.output / f"{args.name}_LineCount.pdf"
-    HTML(string=html_content).write_pdf(pdf_path, stylesheets=stylesheets)
+    HTML(string=html_content).write_pdf(pdf_path, stylesheets=STYLESHEET)
 
-def process_single_repo(args):
+def process_single_repo(args: SimpleNamespace):
     """Handles logic for a single repository source."""
     source_path = Path(args.source)
     
@@ -193,24 +191,15 @@ def process_single_repo(args):
                 if args.branch:
                     repo.git.checkout(args.branch)
                 working_path = Path(tmp_dir)
-                if not args.name:
-                    args.name = args.source.rstrip('/').split('/')[-1].replace('.git', '')
             except Exception as e:
                 print(f"Error: {e}")
                 return
-        else:
-            if not args.name:
-                args.name = source_path.name
+ 
 
         df_all = process_repository(working_path, args.extra_dependencies, args.exclude)
         
         # Inject metadata
-        metadata_fields = {
-            "User ID": args.user_id,
-            "Cost Center": args.cost_center,
-            "Program Supported": args.program_supported,
-            "Business Process": args.business_process
-        }
+        metadata_fields = {k: v for k, v in args.__dict__.items() if k not in REQUIRED_KEYS}
         for col, val in metadata_fields.items():
             df_all[col] = val
 
@@ -233,23 +222,17 @@ def process_batch(toml_file: str):
 
 def create_arguments(repo_name, config, defaults):
     merged = {**defaults, **config, "name": repo_name}
-    filtered = {k: v for k, v in merged.items()}
     for k in REQUIRED_KEYS:
-        filtered.setdefault(k, None)
-    if filtered.get('output'):
-        filtered['output'] = Path(filtered['output'])
-    return SimpleNamespace(**filtered)
+        merged.setdefault(k, None)
+    if merged.get('output'):
+        merged['output'] = Path(merged['output'])
+    return SimpleNamespace(**merged)
 
 def main():
     parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
-
     parser.add_argument("batch", help="Path to TOML for batch processing")
-
-
     args = parser.parse_args()
-
-    if args.batch:
-        process_batch(args.batch)
+    process_batch(args.batch)
 
 
 if __name__ == "__main__":
