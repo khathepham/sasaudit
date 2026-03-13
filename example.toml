@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────
-# SASAudit Configuration
+# SAS Inventory Configuration
 # ─────────────────────────────────────────────
 # Values set here apply to every repo by default.
 # Any value can be overridden inside a specific [repo.Name] block.
