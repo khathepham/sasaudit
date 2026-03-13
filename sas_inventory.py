@@ -293,7 +293,8 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
     """Walks directory and aggregates counts into a dict of DataFrames."""
     print("Processing Repository...")
     records = []
-    proc_records, libname_records, macro_def_records, macro_call_records, dataset_ref_records = [], [], [], [], []
+    (proc_records, libname_records, macro_def_records, macro_call_records, dataset_ref_records,
+     dataset_catalog_records) = [], [], [], [], [], []
 
     filenames = [
         Path(fp).stem for fp in root_path.rglob('*')
@@ -310,6 +311,18 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
 
     for file_path in filtered_files:
         if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
+            suffix = file_path.suffix.lower()
+            file_name = file_path.name
+            directory = str(file_path.parent.relative_to(root_path))
+
+            if suffix in (".sas7bcat", ".sas7bdat"):
+                dataset_catalog_records.append({
+                    "File Name": file_name,
+                    "Directory": directory,
+                    "Type": suffix,
+                })
+                continue
+
             count = count_lines_in_file(file_path)
             if count > 0:
                 parsed = parse_sas_file(file_path, filenames)
@@ -317,12 +330,10 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
                 oracle_calls = parsed['oracle_calls'] or any(
                     extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
                 )
-                file_name = file_path.name
-                directory = str(file_path.parent.relative_to(root_path))
 
                 records.append({
                     "File Name": file_name,
-                    "Extension": file_path.suffix.lower() or "no_ext",
+                    "Extension": suffix or "no_ext",
                     "Directory": directory,
                     "Line Count": count,
                     "Dependencies": dependencies,
@@ -340,6 +351,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
                 for r in parsed['dataset_refs']:
                     dataset_ref_records.append({"File Name": file_name, "Directory": directory, **r})
 
+
     return {
         'files':        pd.DataFrame(records),
         'procs':        pd.DataFrame(proc_records),
@@ -347,6 +359,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
         'macro_defs':   pd.DataFrame(macro_def_records),
         'macro_calls':  pd.DataFrame(macro_call_records),
         'dataset_refs': pd.DataFrame(dataset_ref_records),
+        'dataset_catalog': pd.DataFrame(dataset_catalog_records),
     }
 
 def export_results(data: dict, args):
@@ -387,6 +400,7 @@ def export_results(data: dict, args):
         data['macro_defs'].to_excel(writer, sheet_name="Macro Definitions", index=False)
         data['macro_calls'].to_excel(writer, sheet_name="Macro Calls", index=False)
         data['dataset_refs'].to_excel(writer, sheet_name="Dataset References", index=False)
+        data['dataset_catalog'].to_excel(writer, sheet_name="SAS Datasets & Catalogs", index=False)
 
 def process_single_repo(args: SimpleNamespace):
     """Handles logic for a single repository source."""
