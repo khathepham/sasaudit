@@ -4,14 +4,23 @@ import tomllib
 from pathlib import Path
 
 import pandas as pd
+from dataclasses import dataclass, field, fields
 from git import Repo
-from types import SimpleNamespace
 import re
 
 
 # --- Configuration & Templates ---
 TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
-REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
+
+@dataclass
+class RepoConfig:
+    name: str
+    source: str
+    output: Path
+    branch: str | None = None
+    extra_dependencies: list = field(default_factory=list)
+    exclude: list = field(default_factory=list)
+    extra: dict = field(default_factory=dict)  # arbitrary TOML keys injected as metadata columns
 
 # --- Utility Functions ---
 
@@ -402,7 +411,7 @@ def export_results(data: dict, args):
         data['dataset_refs'].to_excel(writer, sheet_name="Dataset References", index=False)
         data['dataset_catalog'].to_excel(writer, sheet_name="SAS Datasets & Catalogs", index=False)
 
-def process_single_repo(args: SimpleNamespace):
+def process_single_repo(args: RepoConfig):
     """Handles logic for a single repository source."""
     source_path = Path(args.source)
 
@@ -421,9 +430,8 @@ def process_single_repo(args: SimpleNamespace):
 
         data = process_repository(working_path, args.extra_dependencies, args.exclude)
 
-        # Inject metadata into the file-level sheet only
-        metadata_fields = {k: v for k, v in args.__dict__.items() if k not in REQUIRED_KEYS}
-        for col, val in metadata_fields.items():
+        # Inject name + any extra TOML metadata into the file-level sheet only
+        for col, val in {"name": args.name, **args.extra}.items():
             data['files'][col] = val
 
         export_results(data, args)
@@ -443,13 +451,15 @@ def process_batch(toml_file: str):
         process_single_repo(args)
 
 
-def create_arguments(repo_name, config, defaults):
+_REPO_CONFIG_KEYS = {f.name for f in fields(RepoConfig) if f.name != 'extra'}
+
+def create_arguments(repo_name, config, defaults) -> RepoConfig:
     merged = {**defaults, **config, "name": repo_name}
-    for k in REQUIRED_KEYS:
-        merged.setdefault(k, None)
     if merged.get('output'):
         merged['output'] = Path(merged['output'])
-    return SimpleNamespace(**merged)
+    known = {k: merged[k] for k in _REPO_CONFIG_KEYS if k in merged}
+    extra = {k: v for k, v in merged.items() if k not in _REPO_CONFIG_KEYS}
+    return RepoConfig(**known, extra=extra)
 
 def main():
     parser = argparse.ArgumentParser(description="SAS Inventory")
