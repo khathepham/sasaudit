@@ -13,7 +13,7 @@ import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
-from sasaudit import (
+from sas_inventory import (
     is_binary,
     count_lines_in_file,
     check_oracle_calls,

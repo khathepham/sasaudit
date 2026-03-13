@@ -30,7 +30,7 @@ REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 # --- Utility Functions ---
 
 def is_binary(path: Path) -> bool:
-    """Check if file is binary by inspecting the first kilobyte."""
+    """Check if a file is binary by inspecting the first kilobyte."""
     try:
         with path.open('rb') as f:
             return bool(f.read(1024).translate(None, TEXT_CHARS))
@@ -159,10 +159,12 @@ def export_results(df: pd.DataFrame, args):
         summary_data.items(), 
         tablefmt="github"
     )
-    # CSV Exports
-    df_files.to_csv(args.output / f"{args.name}_file_details.csv", index=False)
-    df_ext.to_csv(args.output / f"{args.name}_ext_summary.csv", index=False)
-    df_dir.to_csv(args.output / f"{args.name}_dir_summary.csv", index=False)
+    # Excel Export
+    xlsx_path = args.output / f"{args.name}_audit.xlsx"
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        df_files.to_excel(writer, sheet_name="File Details", index=False)
+        df_ext.to_excel(writer, sheet_name="Extension Summary", index=False)
+        df_dir.to_excel(writer, sheet_name="Directory Summary", index=False)
 
     # PDF Export
     md_engine = MarkdownIt().enable('table')
@@ -228,7 +230,7 @@ def create_arguments(repo_name, config, defaults):
     return SimpleNamespace(**merged)
 
 def main():
-    parser = argparse.ArgumentParser(description="Code Line Counter (SAS Optimized)")
+    parser = argparse.ArgumentParser(description="SAS Inventory")
     parser.add_argument("batch", help="Path to TOML for batch processing")
     args = parser.parse_args()
     process_batch(args.batch)

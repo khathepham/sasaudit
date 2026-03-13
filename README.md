@@ -1,12 +1,12 @@
-# SASAudit
+# SAS Inventory
 
-A command-line tool that scans code repositories and generates line count reports. It has special support for SAS files, including comment filtering, encoding handling, dependency tracking, and Oracle call detection.
+A command-line tool that scans code repositories and generates inventory reports. It has special support for SAS files, including comment filtering, encoding handling, dependency tracking, and Oracle call detection.
 
 ---
 
 ## What It Does
 
-For each repository you point it at, SASAudit will:
+For each repository you point it at, SAS Inventory will:
 
 - Count non-blank lines of code across all files
 - Skip binary files automatically
@@ -16,20 +16,18 @@ For each repository you point it at, SASAudit will:
   - Detect which SAS files depend on other SAS files (via `%include`, `%macro`, `call execute`)
   - Detect Oracle database calls (`libname ... oracle` and `connect to oracle`)
 - Attach metadata to results (cost center, program name, etc.)
-- Export everything to a **PDF summary report** and **three CSV files**
+- Export everything to a **PDF summary report** and an **Excel workbook**
 
 ---
 
 ## Output Files
 
-For each repository named (e.g. `MyProject`), SASAudit creates:
+For each repository named (e.g. `MyProject`), SAS Inventory creates:
 
 | File | Description |
 |------|-------------|
 | `MyProject_LineCount.pdf` | Summary report with line counts by extension and directory |
-| `MyProject_file_details.csv` | One row per file: name, directory, line count, dependencies, Oracle calls, metadata |
-| `MyProject_ext_summary.csv` | Line counts grouped by file extension |
-| `MyProject_dir_summary.csv` | Line counts per directory, broken out as SAS vs. non-SAS |
+| `MyProject_audit.xlsx` | Excel workbook with three sheets: File Details, Extension Summary, Directory Summary |
 
 ---
 
@@ -69,7 +67,7 @@ pip install -r requirements.txt
 
 ## Configuration: The TOML File
 
-SASAudit is configured with a `.toml` file. This file tells it which repositories to scan and what metadata to attach to the results.
+SAS Inventory is configured with a `.toml` file. This file tells it which repositories to scan and what metadata to attach to the results.
 
 An example config is included at [`example.toml`](./example.toml). You can copy and edit it to match your setup.
 
@@ -142,8 +140,11 @@ exclude = []
 [repo.MyProject]
 source = "git@github.com:myorg/myproject.git"
 branch = "main"
-extra_dependencies = ["git@github.com:myorg/shared-macros.git"]
+extra_dependencies = ["git@github.com:myorg/shared-macros.git", "shared/macro/directory"]
 exclude = ["*.for"]
+
+[repo.MyProject2]
+source = "/path/to/project"
 ```
 
 ---
@@ -153,13 +154,13 @@ exclude = ["*.for"]
 Once your TOML file is set up, run:
 
 ```sh
-python sasaudit.py your_config.toml
+python sas_inventory.py your_config.toml
 ```
 
 Or with the included example:
 
 ```sh
-python sasaudit.py example.toml
+python sas_inventory.py example.toml
 ```
 
 The tool will print progress as it processes each repository and confirm when each report is done.
@@ -169,9 +170,9 @@ The tool will print progress as it processes each repository and confirm when ea
 ## Tips
 
 - **Excluding files:** The `exclude` list uses glob-style patterns (same format as `.gitignore`). For example, `"*.for"` skips all Fortran files, `"temp/*"` skips everything in a `temp/` folder.
-- **Multiple repos in one run:** Add as many `[repo.Name]` blocks as you like to a single TOML file — SASAudit will process them all in sequence.
-- **Cross-repo dependencies:** If your SAS project calls macros defined in a shared library, add that library's path or Git URL to `extra_dependencies`. SASAudit will note which files in the main project depend on which files in the shared library.
-- **Oracle detection:** The `Oracle Calls` column in the file details CSV flags any SAS file (or its dependencies) that contain Oracle `libname` or `connect to oracle` statements.
+- **Multiple repos in one run:** Add as many `[repo.Name]` blocks as you like to a single TOML file — SAS Inventory will process them all in sequence.
+- **Cross-repo dependencies:** If your SAS project calls macros defined in a shared library, add that library's path or Git URL to `extra_dependencies`. SAS Inventory will note which files in the main project depend on which files in the shared library.
+- **Oracle detection:** The `Oracle Calls` column in the File Details sheet flags any SAS file (or its dependencies) that contain Oracle `libname` or `connect to oracle` statements.
 
 ---
 
