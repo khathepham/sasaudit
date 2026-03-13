@@ -115,8 +115,8 @@ def check_libnames(cleaned_lines: list) -> list:
         m = libname_stmt.search(clean)
         if m:
             libname = m.group(1)
-            if valid_name.match(libname) and libname.upper() != 'LIBNAME':
-                engine   = m.group(2).strip()
+            engine   = m.group(2).strip()
+            if valid_name.match(libname) and libname.upper() != 'LIBNAME' and engine.upper() != 'CLEAR':
                 path_val = m.group(3).strip().strip('"\';').strip()
                 results.append({
                     'libname': libname,
