@@ -25,7 +25,7 @@ MD_FORMAT = """# {}
 ## Line Count by Directory
 {}
 """
-REQUIRED_KEYS = ["name", "source", "branch", "output", "extra_dependencies", "exclude"]
+REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
 

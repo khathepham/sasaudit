@@ -5,4 +5,3 @@ venv/
 out*/
 launch.json
 __pycache__
-.DS_store
