@@ -5,26 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 from git import Repo
-from markdown_it import MarkdownIt
-from weasyprint import HTML, CSS
-from tabulate import tabulate
 from types import SimpleNamespace
 import re
 
 
 # --- Configuration & Templates ---
 TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
-CSS_PATH = Path("./style.css")
-STYLESHEET = [CSS(filename=str(CSS_PATH))] if CSS_PATH.exists() else []
-
-
-MD_FORMAT = """# {}
-## Line Count by Extension
-{}
-{}
-## Line Count by Directory
-{}
-"""
 REQUIRED_KEYS = ["source", "branch", "output", "extra_dependencies", "exclude"]
 
 # --- Utility Functions ---
@@ -133,7 +119,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
     return pd.DataFrame(records)
 
 def export_results(df: pd.DataFrame, args):
-    """Generates PDF and CSV files."""
+    """Generates Excel workbook."""
     print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
     df_dir = df.copy()
@@ -151,34 +137,18 @@ def export_results(df: pd.DataFrame, args):
     df_files = df.copy().drop("Extension", axis=1)
 
     is_sas = df["Extension"] == ".sas"
-    summary_data = {
-        "Total Non-SAS": df.loc[~is_sas, "Line Count"].sum(),
-        "Total SAS": df.loc[is_sas, "Line Count"].sum(),
-        "Grand Total": df["Line Count"].sum()
-    }
-    ext_sum_md = tabulate(
-        summary_data.items(), 
-        tablefmt="github"
-    )
-    # Excel Export
+    df_summary = pd.DataFrame([
+        {"Metric": "Total SAS Lines",     "Value": int(df.loc[is_sas, "Line Count"].sum())},
+        {"Metric": "Total Non-SAS Lines", "Value": int(df.loc[~is_sas, "Line Count"].sum())},
+        {"Metric": "Grand Total",         "Value": int(df["Line Count"].sum())},
+    ])
+
     xlsx_path = args.output / f"{args.name}_audit.xlsx"
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        df_summary.to_excel(writer, sheet_name="Summary", index=False)
         df_files.to_excel(writer, sheet_name="File Details", index=False)
         df_ext.to_excel(writer, sheet_name="Extension Summary", index=False)
         df_dir.to_excel(writer, sheet_name="Directory Summary", index=False)
-
-    # PDF Export
-    md_engine = MarkdownIt().enable('table')
-    html_content = md_engine.render(MD_FORMAT.format(
-        args.name, 
-        df_ext.to_markdown(index=False), 
-        ext_sum_md, 
-        df_dir.to_markdown(index=False)
-    ))
-
-    
-    pdf_path = args.output / f"{args.name}_LineCount.pdf"
-    HTML(string=html_content).write_pdf(pdf_path, stylesheets=STYLESHEET)
 
 def process_single_repo(args: SimpleNamespace):
     """Handles logic for a single repository source."""

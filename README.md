@@ -16,7 +16,7 @@ For each repository you point it at, SAS Inventory will:
   - Detect which SAS files depend on other SAS files (via `%include`, `%macro`, `call execute`)
   - Detect Oracle database calls (`libname ... oracle` and `connect to oracle`)
 - Attach metadata to results (cost center, program name, etc.)
-- Export everything to a **PDF summary report** and an **Excel workbook**
+- Export everything to a single **Excel workbook**
 
 ---
 
@@ -26,8 +26,7 @@ For each repository named (e.g. `MyProject`), SAS Inventory creates:
 
 | File | Description |
 |------|-------------|
-| `MyProject_LineCount.pdf` | Summary report with line counts by extension and directory |
-| `MyProject_audit.xlsx` | Excel workbook with three sheets: File Details, Extension Summary, Directory Summary |
+| `MyProject_audit.xlsx` | Excel workbook with sheets: Summary, File Details, Extension Summary, Directory Summary |
 
 ---
 
