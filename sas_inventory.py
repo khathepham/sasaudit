@@ -265,7 +265,8 @@ def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptio
     empty = {
         'procs': [], 'libnames': [], 'macro_defs': [],
         'macro_calls': [], 'dataset_refs': [], 'dependencies': '',
-        'oracle_calls': False, 'description': NO_DESCRIPTION
+        'oracle_calls': False, 'description': NO_DESCRIPTION,
+        'line_count': 0
     }
     if path.suffix.lower() != '.sas':
         return empty
@@ -275,6 +276,7 @@ def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptio
         return empty
 
     cleaned = strip_sas_comments(raw_lines)
+    line_count = sum(1 for l in raw_lines if (s := l.strip()) and not s.startswith("/*"))
 
     return {
         'procs':        find_procs(cleaned),
@@ -284,11 +286,21 @@ def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptio
         'dataset_refs': find_dataset_refs(cleaned),
         'dependencies': find_dependencies(cleaned, filenames_to_check or [], path.stem),
         'oracle_calls': check_oracle_calls(cleaned),
-        'description':  extract_description(raw_lines) if parse_description else NO_DESCRIPTION
+        'description':  extract_description(raw_lines) if parse_description else NO_DESCRIPTION,
+        'line_count':   line_count
     }
 
 
 # --- Repository Processing ---
+
+def _has_oracle_calls(path: Path) -> bool:
+    """Quick check for Oracle calls without running full SAS analysis."""
+    try:
+        raw_lines = path.read_text(encoding='windows-1252', errors='ignore').splitlines()
+    except Exception:
+        return False
+    return check_oracle_calls(strip_sas_comments(raw_lines))
+
 
 def get_extra_dependencies(extra_dependency_paths: list) -> dict:
     """Clones/reads extra repos and returns {stem: has_oracle_calls} for each SAS file."""
@@ -311,7 +323,7 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
                 if fp.is_file() and not any(p.startswith('.') for p in fp.parts)
                 and fp.suffix.lower() == ".sas"
             ]
-            extra_dependencies.update({p.stem: parse_sas_file(p)['oracle_calls'] for p in paths})
+            extra_dependencies.update({p.stem: _has_oracle_calls(p) for p in paths})
 
     return extra_dependencies
 
@@ -336,6 +348,14 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
     extra_dependencies = get_extra_dependencies(extra_dependency_paths if extra_dependency_paths else [])
     filenames.extend(extra_dependencies.keys())
 
+    sub_record_lists = {
+        'procs': proc_records,
+        'libnames': libname_records,
+        'macro_defs': macro_def_records,
+        'macro_calls': macro_call_records,
+        'dataset_refs': dataset_ref_records,
+    }
+
     for file_path in all_files:
         suffix = file_path.suffix.lower()
         file_name = file_path.name
@@ -349,34 +369,29 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
             })
             continue
 
-        count = count_lines_in_file(file_path)
-        if count > 0:
-            parsed = parse_sas_file(file_path, filenames, parse_description)
-            dependencies = parsed['dependencies']
-            oracle_calls = parsed['oracle_calls'] or any(
-                extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
-            )
+        parsed = parse_sas_file(file_path, filenames, parse_description)
+        count = parsed['line_count'] if suffix == '.sas' else count_lines_in_file(file_path)
+        if count == 0:
+            continue
 
-            records.append({
-                "File Name": file_name,
-                "Extension": suffix or "no_ext",
-                "Directory": directory,
-                "Line Count": count,
-                "Dependencies": dependencies,
-                "Oracle Calls": oracle_calls,
-                "Description": parsed['description']
-            })
+        dependencies = parsed['dependencies']
+        oracle_calls = parsed['oracle_calls'] or any(
+            extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
+        )
 
-            for r in parsed['procs']:
-                proc_records.append({"File Name": file_name, "Directory": directory, **r})
-            for r in parsed['libnames']:
-                libname_records.append({"File Name": file_name, "Directory": directory, **r})
-            for r in parsed['macro_defs']:
-                macro_def_records.append({"File Name": file_name, "Directory": directory, **r})
-            for r in parsed['macro_calls']:
-                macro_call_records.append({"File Name": file_name, "Directory": directory, **r})
-            for r in parsed['dataset_refs']:
-                dataset_ref_records.append({"File Name": file_name, "Directory": directory, **r})
+        records.append({
+            "File Name": file_name,
+            "Extension": suffix or "no_ext",
+            "Directory": directory,
+            "Line Count": count,
+            "Dependencies": dependencies,
+            "Oracle Calls": oracle_calls,
+            "Description": parsed['description']
+        })
+
+        for key, record_list in sub_record_lists.items():
+            for r in parsed[key]:
+                record_list.append({"File Name": file_name, "Directory": directory, **r})
 
     return {
         'files':        pd.DataFrame(records),
