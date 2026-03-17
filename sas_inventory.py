@@ -309,7 +309,7 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
     if not extra_dependency_paths:
         return {}
     for d in extra_dependency_paths:
-        source_path = Path(d)
+        source_path = Path(d).expanduser().resolve()
         with tempfile.TemporaryDirectory() as tmp_dir:
             working_path = source_path
             if not source_path.is_dir():
@@ -482,7 +482,7 @@ def create_repo_config(repo_name, config, defaults) -> RepoConfig:
 
 def process_single_repo(args: RepoConfig):
     """Handles logic for a single repository source."""
-    source_path = Path(args.source)
+    source_path = Path(args.source).expanduser().resolve()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         working_path = source_path
