@@ -1,17 +1,17 @@
 import argparse
+import re
 import tempfile
 import tomllib
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import pandas as pd
-from dataclasses import dataclass, field, fields
 from git import Repo
-import re
+
 from sas_description_parser import extract_description, NO_DESCRIPTION
 
 
-# --- Configuration & Templates ---
-TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
+# --- Configuration ---
 
 @dataclass
 class RepoConfig:
@@ -24,7 +24,38 @@ class RepoConfig:
     parse_description: bool = False
     extra: dict = field(default_factory=dict)  # arbitrary TOML keys injected as metadata columns
 
-# --- Utility Functions ---
+_REPO_CONFIG_KEYS = {f.name for f in fields(RepoConfig) if f.name != 'extra'}
+
+
+# --- Constants ---
+
+TEXT_CHARS = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)) - {0x7f})
+
+_MACRO_COMMENT_RE = re.compile(r'%\*[^;]*;')
+_PROC_RE = re.compile(r'(?i)\bPROC\s+(\w+)')
+_LIBNAME_VALID_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]{0,7}$')
+_LIBNAME_STMT_RE = re.compile(r'(?i)\bLIBNAME\s+(\w+)\s*(\w*)\s*(.*?)(?:;|$)')
+_MACRO_PARAM_RE = re.compile(r'(?i)\b(mLibname|mLibrary|mLib|mSchema|mDatabase)\s*=\s*([^\s,);]+)')
+_MACRO_DEF_RE = re.compile(r'(?i)%MACRO\s+(\w+)')
+_MACRO_CALL_RE = re.compile(r'%([A-Za-z_]\w*)')
+_TRIGGER_KWS_RE = re.compile(r'(?i)\b(DATA|SET|MERGE|UPDATE|FROM)\b')
+_LIBDS_RE = re.compile(r'(?i)\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b')
+_VALID_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+_ORACLE_LIBNAME_RE = re.compile(r'(?i)libname\s+\w+\s+oracle\b')
+
+_MACRO_KEYWORDS = {
+    'MACRO', 'MEND', 'LET', 'IF', 'THEN', 'ELSE', 'DO', 'END', 'TO', 'BY',
+    'UNTIL', 'WHILE', 'GOTO', 'RETURN', 'GLOBAL', 'LOCAL', 'PUT', 'INCLUDE',
+    'ABORT', 'STR', 'NRSTR', 'QUOTE', 'NRQUOTE', 'BQUOTE', 'NRBQUOTE',
+    'UNQUOTE', 'SUPERQ', 'EVAL', 'SYSEVALF', 'SYSFUNC', 'SYSCALL',
+    'SUBSTR', 'SCAN', 'UPCASE', 'LOWCASE', 'INDEX', 'LENGTH', 'TRIM',
+    'LEFT', 'RIGHT', 'COMPRESS', 'STRIP', 'TRANWRD', 'TRANSLATE',
+    'CAT', 'CATS', 'CATT', 'CATX', 'OPEN', 'CLOSE', 'EXIST', 'VARNUM',
+    'QTRIM', 'NLITERAL', 'KSTRIP', 'KCMPRES',
+}
+
+
+# --- File Utilities ---
 
 def is_binary(path: Path) -> bool:
     """Check if a file is binary by inspecting the first kilobyte."""
@@ -33,6 +64,7 @@ def is_binary(path: Path) -> bool:
             return bool(f.read(1024).translate(None, TEXT_CHARS))
     except Exception:
         return True
+
 
 def count_lines_in_file(path: Path) -> int:
     """Counts non-blank lines. Excludes SAS comments if applicable."""
@@ -47,6 +79,7 @@ def count_lines_in_file(path: Path) -> int:
         return sum(1 for l in lines if l.strip())
     except Exception:
         return 0
+
 
 def strip_sas_comments(lines: list) -> list:
     """
@@ -70,7 +103,7 @@ def strip_sas_comments(lines: list) -> list:
 
         # Strip %* ... ; macro-style comments
         while True:
-            m = re.search(r'%\*[^;]*;', cleaned)
+            m = _MACRO_COMMENT_RE.search(cleaned)
             if m:
                 cleaned = (cleaned[:m.start()] + ' ' + cleaned[m.end():]).strip()
             else:
@@ -97,37 +130,32 @@ def strip_sas_comments(lines: list) -> list:
     return result
 
 
-# --- SAS Pattern Checkers (all accept pre-stripped lines) ---
+# --- SAS Analyzers ---
 
-def check_procs(cleaned_lines: list) -> list:
+def find_procs(cleaned_lines: list) -> list:
     """Returns list of {'proc_name', 'line_num'} dicts."""
-    pattern = re.compile(r'(?i)\bPROC\s+(\w+)')
     results = []
     for line_num, clean in cleaned_lines:
-        m = pattern.search(clean)
+        m = _PROC_RE.search(clean)
         if m:
             results.append({'proc_name': m.group(1).upper(), 'line_num': line_num})
     return results
 
 
-def check_libnames(cleaned_lines: list) -> list:
+def find_libnames(cleaned_lines: list) -> list:
     """
     Returns list of {'libname', 'engine', 'path', 'source_type', 'line_num'} dicts.
     Detects both direct LIBNAME statements and macro parameter assignments
     (mLibname=, mLibrary=, mLib=, mSchema=, mDatabase=).
     """
-    valid_name   = re.compile(r'^[A-Za-z_][A-Za-z0-9_]{0,7}$')
-    libname_stmt = re.compile(r'(?i)\bLIBNAME\s+(\w+)\s*(\w*)\s*(.*?)(?:;|$)')
-    macro_param  = re.compile(r'(?i)\b(mLibname|mLibrary|mLib|mSchema|mDatabase)\s*=\s*([^\s,);]+)')
-
     results = []
     for line_num, clean in cleaned_lines:
         # Direct LIBNAME statement
-        m = libname_stmt.search(clean)
+        m = _LIBNAME_STMT_RE.search(clean)
         if m:
             libname = m.group(1)
             engine   = m.group(2).strip()
-            if valid_name.match(libname) and libname.upper() != 'LIBNAME' and engine.upper() != 'CLEAR':
+            if _LIBNAME_VALID_RE.match(libname) and libname.upper() != 'LIBNAME' and engine.upper() != 'CLEAR':
                 path_val = m.group(3).strip().strip('"\';').strip()
                 results.append({
                     'libname': libname,
@@ -139,9 +167,9 @@ def check_libnames(cleaned_lines: list) -> list:
 
         # Macro parameter libnames — skip %let assignments
         if '%let' not in clean.lower():
-            for mp in macro_param.finditer(clean):
+            for mp in _MACRO_PARAM_RE.finditer(clean):
                 libname = mp.group(2).strip('"\' ')
-                if valid_name.match(libname):
+                if _LIBNAME_VALID_RE.match(libname):
                     results.append({
                         'libname': libname,
                         'engine': 'MACRO_PARAM',
@@ -153,63 +181,46 @@ def check_libnames(cleaned_lines: list) -> list:
     return results
 
 
-def check_macro_defs(cleaned_lines: list) -> list:
+def find_macro_defs(cleaned_lines: list) -> list:
     """Returns list of {'macro_name', 'line_num'} dicts for %macro definitions."""
-    pattern = re.compile(r'(?i)%MACRO\s+(\w+)')
     results = []
     for line_num, clean in cleaned_lines:
-        m = pattern.search(clean)
+        m = _MACRO_DEF_RE.search(clean)
         if m:
             results.append({'macro_name': m.group(1), 'line_num': line_num})
     return results
 
 
-_MACRO_KEYWORDS = {
-    'MACRO', 'MEND', 'LET', 'IF', 'THEN', 'ELSE', 'DO', 'END', 'TO', 'BY',
-    'UNTIL', 'WHILE', 'GOTO', 'RETURN', 'GLOBAL', 'LOCAL', 'PUT', 'INCLUDE',
-    'ABORT', 'STR', 'NRSTR', 'QUOTE', 'NRQUOTE', 'BQUOTE', 'NRBQUOTE',
-    'UNQUOTE', 'SUPERQ', 'EVAL', 'SYSEVALF', 'SYSFUNC', 'SYSCALL',
-    'SUBSTR', 'SCAN', 'UPCASE', 'LOWCASE', 'INDEX', 'LENGTH', 'TRIM',
-    'LEFT', 'RIGHT', 'COMPRESS', 'STRIP', 'TRANWRD', 'TRANSLATE',
-    'CAT', 'CATS', 'CATT', 'CATX', 'OPEN', 'CLOSE', 'EXIST', 'VARNUM',
-    'QTRIM', 'NLITERAL', 'KSTRIP', 'KCMPRES',
-}
-
-def check_macro_calls(cleaned_lines: list) -> list:
+def find_macro_calls(cleaned_lines: list) -> list:
     """
     Returns list of {'macro_name', 'line_num'} dicts for user-defined macro calls.
     Excludes SAS built-in macro keywords and functions.
     """
-    pattern = re.compile(r'%([A-Za-z_]\w*)')
     results = []
     for line_num, clean in cleaned_lines:
-        for m in pattern.finditer(clean):
+        for m in _MACRO_CALL_RE.finditer(clean):
             name = m.group(1)
             if name.upper() not in _MACRO_KEYWORDS:
                 results.append({'macro_name': name, 'line_num': line_num})
     return results
 
 
-def check_dataset_refs(cleaned_lines: list) -> list:
+def find_dataset_refs(cleaned_lines: list) -> list:
     """
     Returns list of {'library', 'dataset', 'ref_type', 'line_num'} dicts.
     Detects lib.dataset notation in DATA, SET, MERGE, UPDATE, and FROM contexts.
     """
-    trigger_kws   = re.compile(r'(?i)\b(DATA|SET|MERGE|UPDATE|FROM)\b')
-    libds_pattern = re.compile(r'(?i)\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b')
-    valid_name    = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
-
     results = []
     for line_num, clean in cleaned_lines:
-        kw_match = trigger_kws.search(clean)
+        kw_match = _TRIGGER_KWS_RE.search(clean)
         if not kw_match:
             continue
 
         ref_type = kw_match.group(1).upper()
-        for m in libds_pattern.finditer(clean):
+        for m in _LIBDS_RE.finditer(clean):
             library = m.group(1)
             dataset = m.group(2)
-            if valid_name.match(library) and valid_name.match(dataset):
+            if _VALID_NAME_RE.match(library) and _VALID_NAME_RE.match(dataset):
                 results.append({
                     'library': library,
                     'dataset': dataset,
@@ -219,16 +230,19 @@ def check_dataset_refs(cleaned_lines: list) -> list:
     return results
 
 
-def check_dependencies(cleaned_lines: list, filenames_to_check: list, stem: str = '') -> str:
+def find_dependencies(cleaned_lines: list, filenames_to_check: list, stem: str = '') -> str:
     """Returns comma-separated dependency names found in the cleaned lines."""
+    filenames_cf = [(d, d.casefold()) for d in filenames_to_check]
     dependency_set = set()
     for _, clean in cleaned_lines:
-        for d in filenames_to_check:
-            index_pos = clean.casefold().find(d.casefold())
+        clean_cf = clean.casefold()
+        has_include = 'include' in clean_cf
+        has_call_execute = 'call execute' in clean_cf
+        for d, d_cf in filenames_cf:
+            index_pos = clean_cf.find(d_cf)
             if index_pos != -1:
                 if (index_pos > 0 and clean[index_pos - 1] == '%') or \
-                   'include' in clean.lower() or \
-                   'call execute' in clean.lower():
+                   has_include or has_call_execute:
                     dependency_set.add(d)
     dependency_set.discard(stem)
     return ", ".join(map(str, dependency_set))
@@ -236,17 +250,17 @@ def check_dependencies(cleaned_lines: list, filenames_to_check: list, stem: str 
 
 def check_oracle_calls(cleaned_lines: list) -> bool:
     """Returns True if the file contains Oracle LIBNAME or CONNECT TO ORACLE."""
-    oracle_libname = re.compile(r'(?i)libname\s+\w+\s+oracle\b')
     for _, clean in cleaned_lines:
-        if 'connect to oracle' in clean.lower() or oracle_libname.search(clean):
+        if 'connect to oracle' in clean.lower() or _ORACLE_LIBNAME_RE.search(clean):
             return True
     return False
 
-def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptions: bool = False) -> dict:
+
+def parse_sas_file(path: Path, filenames_to_check: list = None, parse_description: bool = False) -> dict:
     """
     Reads a SAS file once, strips comments once, and runs all checks.
     Returns a dict with keys: procs, libnames, macro_defs, macro_calls,
-    dataset_refs, dependencies, oracle_calls.
+    dataset_refs, dependencies, oracle_calls, description.
     """
     empty = {
         'procs': [], 'libnames': [], 'macro_defs': [],
@@ -263,20 +277,21 @@ def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptio
     cleaned = strip_sas_comments(raw_lines)
 
     return {
-        'procs':        check_procs(cleaned),
-        'libnames':     check_libnames(cleaned),
-        'macro_defs':   check_macro_defs(cleaned),
-        'macro_calls':  check_macro_calls(cleaned),
-        'dataset_refs': check_dataset_refs(cleaned),
-        'dependencies': check_dependencies(cleaned, filenames_to_check or [], path.stem),
+        'procs':        find_procs(cleaned),
+        'libnames':     find_libnames(cleaned),
+        'macro_defs':   find_macro_defs(cleaned),
+        'macro_calls':  find_macro_calls(cleaned),
+        'dataset_refs': find_dataset_refs(cleaned),
+        'dependencies': find_dependencies(cleaned, filenames_to_check or [], path.stem),
         'oracle_calls': check_oracle_calls(cleaned),
-        'description':  extract_description(raw_lines) if parse_descriptions else None
+        'description':  extract_description(raw_lines) if parse_description else NO_DESCRIPTION
     }
 
 
-# --- Processing Logic ---
+# --- Repository Processing ---
 
 def get_extra_dependencies(extra_dependency_paths: list) -> dict:
+    """Clones/reads extra repos and returns {stem: has_oracle_calls} for each SAS file."""
     extra_dependencies = {}
     if not extra_dependency_paths:
         return {}
@@ -296,74 +311,72 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
                 if fp.is_file() and not any(p.startswith('.') for p in fp.parts)
                 and fp.suffix.lower() == ".sas"
             ]
-            extra_dependencies = {p.stem: parse_sas_file(p)['oracle_calls'] for p in paths}
+            extra_dependencies.update({p.stem: parse_sas_file(p)['oracle_calls'] for p in paths})
 
     return extra_dependencies
 
-def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None, parse_descriptions: bool = False) -> dict:
-    """Walks directory and aggregates counts into a dict of DataFrames."""
+
+def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None, parse_description: bool = False) -> dict:
+    """Walks directory, analyzes each file, and returns a dict of DataFrames."""
     print("Processing Repository...")
     records = []
-    (proc_records, libname_records, macro_def_records, macro_call_records, dataset_ref_records,
-     dataset_catalog_records) = [], [], [], [], [], []
+    proc_records = []
+    libname_records = []
+    macro_def_records = []
+    macro_call_records = []
+    dataset_ref_records = []
+    dataset_catalog_records = []
 
-    filenames = [
-        Path(fp).stem for fp in root_path.rglob('*')
-        if Path(fp).is_file() and not any(p.startswith('.') for p in fp.parts)
-        and fp.suffix.lower() == ".sas"
+    all_files = [
+        fp for fp in root_path.rglob('*')
+        if fp.is_file() and not any(p.startswith('.') for p in fp.parts)
+        and (not excluded_patterns or not any(fp.match(pat) for pat in excluded_patterns))
     ]
+    filenames = [fp.stem for fp in all_files if fp.suffix.lower() == ".sas"]
     extra_dependencies = get_extra_dependencies(extra_dependency_paths if extra_dependency_paths else [])
     filenames.extend(extra_dependencies.keys())
 
-    filtered_files = [
-        path for path in root_path.rglob('*')
-        if not excluded_patterns or not any(path.match(pattern) for pattern in excluded_patterns)
-    ]
+    for file_path in all_files:
+        suffix = file_path.suffix.lower()
+        file_name = file_path.name
+        directory = str(file_path.parent.relative_to(root_path))
 
-    for file_path in filtered_files:
-        if file_path.is_file() and not any(p.startswith('.') for p in file_path.parts):
-            suffix = file_path.suffix.lower()
-            file_name = file_path.name
-            directory = str(file_path.parent.relative_to(root_path))
+        if suffix in (".sas7bcat", ".sas7bdat"):
+            dataset_catalog_records.append({
+                "File Name": file_name,
+                "Directory": directory,
+                "Type": suffix,
+            })
+            continue
 
-            if suffix in (".sas7bcat", ".sas7bdat"):
-                dataset_catalog_records.append({
-                    "File Name": file_name,
-                    "Directory": directory,
-                    "Type": suffix,
-                })
-                continue
+        count = count_lines_in_file(file_path)
+        if count > 0:
+            parsed = parse_sas_file(file_path, filenames, parse_description)
+            dependencies = parsed['dependencies']
+            oracle_calls = parsed['oracle_calls'] or any(
+                extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
+            )
 
-            count = count_lines_in_file(file_path)
-            if count > 0:
-                parsed = parse_sas_file(file_path, filenames, parse_descriptions)
-                dependencies = parsed['dependencies']
-                oracle_calls = parsed['oracle_calls'] or any(
-                    extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
-                )
+            records.append({
+                "File Name": file_name,
+                "Extension": suffix or "no_ext",
+                "Directory": directory,
+                "Line Count": count,
+                "Dependencies": dependencies,
+                "Oracle Calls": oracle_calls,
+                "Description": parsed['description']
+            })
 
-                records.append({
-                    "File Name": file_name,
-                    "Extension": suffix or "no_ext",
-                    "Directory": directory,
-                    "Line Count": count,
-                    "Dependencies": dependencies,
-                    "Oracle Calls": oracle_calls,
-                    "Description": parsed['description']
-                })
-
-
-                for r in parsed['procs']:
-                    proc_records.append({"File Name": file_name, "Directory": directory, **r})
-                for r in parsed['libnames']:
-                    libname_records.append({"File Name": file_name, "Directory": directory, **r})
-                for r in parsed['macro_defs']:
-                    macro_def_records.append({"File Name": file_name, "Directory": directory, **r})
-                for r in parsed['macro_calls']:
-                    macro_call_records.append({"File Name": file_name, "Directory": directory, **r})
-                for r in parsed['dataset_refs']:
-                    dataset_ref_records.append({"File Name": file_name, "Directory": directory, **r})
-
+            for r in parsed['procs']:
+                proc_records.append({"File Name": file_name, "Directory": directory, **r})
+            for r in parsed['libnames']:
+                libname_records.append({"File Name": file_name, "Directory": directory, **r})
+            for r in parsed['macro_defs']:
+                macro_def_records.append({"File Name": file_name, "Directory": directory, **r})
+            for r in parsed['macro_calls']:
+                macro_call_records.append({"File Name": file_name, "Directory": directory, **r})
+            for r in parsed['dataset_refs']:
+                dataset_ref_records.append({"File Name": file_name, "Directory": directory, **r})
 
     return {
         'files':        pd.DataFrame(records),
@@ -375,27 +388,26 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
         'dataset_catalog': pd.DataFrame(dataset_catalog_records),
     }
 
+
 def export_results(data: dict, args):
     """Generates Excel workbook."""
     print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
 
     df = data['files']
-    df_dir = df.copy()
 
-    df_dir['is_sas'] = df_dir['Extension'].eq('.sas').astype(int)
-    df_dir['is_not_sas'] = df_dir['Extension'].ne('.sas').astype(int)
-
+    is_sas = df['Extension'].eq('.sas')
     df_ext = df.groupby("Extension")["Line Count"].sum().reset_index()
-    df_dir = df_dir.groupby("Directory")[["Directory", "Line Count", "is_sas", "is_not_sas"]].apply(lambda x: pd.Series({
+    df_dir = df.assign(
+        is_sas=is_sas.astype(int),
+        is_not_sas=(~is_sas).astype(int),
+    ).groupby("Directory")[["Directory", "Line Count", "is_sas", "is_not_sas"]].apply(lambda x: pd.Series({
         "SAS Count": (x["is_sas"] * x['Line Count']).sum(),
         "Non-SAS Count": (x["is_not_sas"] * x['Line Count']).sum(),
         "Total Count": x['Line Count'].sum()
-
     })).reset_index()
-    df_files = df.copy().drop("Extension", axis=1)
+    df_files = df.drop("Extension", axis=1)
 
-    is_sas = df["Extension"] == ".sas"
     df_summary = pd.DataFrame([
         {"Metric": "Total SAS Lines",     "Value": int(df.loc[is_sas, "Line Count"].sum())},
         {"Metric": "Total Non-SAS Lines", "Value": int(df.loc[~is_sas, "Line Count"].sum())},
@@ -414,6 +426,19 @@ def export_results(data: dict, args):
         data['macro_calls'].to_excel(writer, sheet_name="Macro Calls", index=False)
         data['dataset_refs'].to_excel(writer, sheet_name="Dataset References", index=False)
         data['dataset_catalog'].to_excel(writer, sheet_name="SAS Datasets & Catalogs", index=False)
+
+
+# --- Orchestration ---
+
+def create_repo_config(repo_name, config, defaults) -> RepoConfig:
+    """Builds a RepoConfig from TOML config, merging in defaults."""
+    merged = {**defaults, **config, "name": repo_name}
+    if merged.get('output'):
+        merged['output'] = Path(merged['output'])
+    known = {k: merged[k] for k in _REPO_CONFIG_KEYS if k in merged}
+    extra = {k: v for k, v in merged.items() if k not in _REPO_CONFIG_KEYS}
+    return RepoConfig(**known, extra=extra)
+
 
 def process_single_repo(args: RepoConfig):
     """Handles logic for a single repository source."""
@@ -441,7 +466,6 @@ def process_single_repo(args: RepoConfig):
         export_results(data, args)
         print(f"Success! Reports for: {args.name}")
 
-# --- Orchestration ---
 
 def process_batch(toml_file: str):
     """Processes multiple repos from a TOML configuration."""
@@ -451,19 +475,9 @@ def process_batch(toml_file: str):
     defaults = toml_data.get("defaults", {})
 
     for repo_name, config in toml_data.get("repo", {}).items():
-        args = create_arguments(repo_name, config, defaults)
+        args = create_repo_config(repo_name, config, defaults)
         process_single_repo(args)
 
-
-_REPO_CONFIG_KEYS = {f.name for f in fields(RepoConfig) if f.name != 'extra'}
-
-def create_arguments(repo_name, config, defaults) -> RepoConfig:
-    merged = {**defaults, **config, "name": repo_name}
-    if merged.get('output'):
-        merged['output'] = Path(merged['output'])
-    known = {k: merged[k] for k in _REPO_CONFIG_KEYS if k in merged}
-    extra = {k: v for k, v in merged.items() if k not in _REPO_CONFIG_KEYS}
-    return RepoConfig(**known, extra=extra)
 
 def main():
     parser = argparse.ArgumentParser(description="SAS Inventory")
