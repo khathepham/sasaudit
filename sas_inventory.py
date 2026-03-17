@@ -7,6 +7,7 @@ import pandas as pd
 from dataclasses import dataclass, field, fields
 from git import Repo
 import re
+from sas_description_parser import extract_description
 
 
 # --- Configuration & Templates ---
@@ -240,8 +241,7 @@ def check_oracle_calls(cleaned_lines: list) -> bool:
             return True
     return False
 
-
-def parse_sas_file(path: Path, filenames_to_check: list = None) -> dict:
+def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptions: bool = False) -> dict:
     """
     Reads a SAS file once, strips comments once, and runs all checks.
     Returns a dict with keys: procs, libnames, macro_defs, macro_calls,
@@ -269,6 +269,7 @@ def parse_sas_file(path: Path, filenames_to_check: list = None) -> dict:
         'dataset_refs': check_dataset_refs(cleaned),
         'dependencies': check_dependencies(cleaned, filenames_to_check or [], path.stem),
         'oracle_calls': check_oracle_calls(cleaned),
+        'description':  extract_description(raw_lines) if parse_descriptions else None
     }
 
 
@@ -298,7 +299,7 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
 
     return extra_dependencies
 
-def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None) -> dict:
+def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None, parse_descriptions: bool = False) -> dict:
     """Walks directory and aggregates counts into a dict of DataFrames."""
     print("Processing Repository...")
     records = []
@@ -334,7 +335,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
 
             count = count_lines_in_file(file_path)
             if count > 0:
-                parsed = parse_sas_file(file_path, filenames)
+                parsed = parse_sas_file(file_path, filenames, parse_descriptions)
                 dependencies = parsed['dependencies']
                 oracle_calls = parsed['oracle_calls'] or any(
                     extra_dependencies.get(d, False) for d in dependencies.split(", ") if dependencies
@@ -348,6 +349,9 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
                     "Dependencies": dependencies,
                     "Oracle Calls": oracle_calls,
                 })
+
+                if parse_descriptions:
+                    records[-1]["Description"] = parsed['description']
 
                 for r in parsed['procs']:
                     proc_records.append({"File Name": file_name, "Directory": directory, **r})

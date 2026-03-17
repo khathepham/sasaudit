@@ -5,12 +5,14 @@
 # Any value can be overridden inside a specific [repo.Name] block.
 
 [defaults]
-output              = "./output"
+output                  = "./output"
+extract_descriptions    = true
 
-"User ID"           = "N/A"
-"Cost Center"       = "739"
-"Program Supported" = "CE"
-"Business Process"  = ""  # e.g. Collection, Estimation, Publication
+"User ID"               = "N/A"
+"Cost Center"           = "739"
+"Program Supported"     = "CE"
+"Business Process"      = ""  # e.g. Collection, Estimation, Publication
+
 
 
 
@@ -27,18 +29,22 @@ output              = "./output"
 source              = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ees.git"
 extra_dependencies  = ["git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"]
 exclude             = ["*.for"]
+parse_description   = true
 "Business Process"    = "Estimation"
 
 [repo.IES]
 source              = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-ies.git"
 extra_dependencies  = ["git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"]
+parse_description   = true
 "Business Process"    = "Estimation"
 
 [repo.Shared]
 source              = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"
+parse_description   = true
 "Business Process"    = "Estimation, Publication"
 
 [repo.Pubs_Microdata]
 source              = "git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-pubs.git"
 extra_dependencies  = ["git@cfgitlabprd01v.psb.bls.gov:dceis/dceis-shared.git"]
+parse_description   = true
 "Business Process"   = "Publication"
