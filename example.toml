@@ -6,7 +6,7 @@
 
 [defaults]
 output                  = "./output"
-extract_descriptions    = true
+parse_description       = true
 
 "User ID"               = "N/A"
 "Cost Center"           = "739"

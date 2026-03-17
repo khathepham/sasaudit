@@ -7,7 +7,7 @@ import pandas as pd
 from dataclasses import dataclass, field, fields
 from git import Repo
 import re
-from sas_description_parser import extract_description
+from sas_description_parser import extract_description, NO_DESCRIPTION
 
 
 # --- Configuration & Templates ---
@@ -21,6 +21,7 @@ class RepoConfig:
     branch: str | None = None
     extra_dependencies: list = field(default_factory=list)
     exclude: list = field(default_factory=list)
+    parse_description: bool = False
     extra: dict = field(default_factory=dict)  # arbitrary TOML keys injected as metadata columns
 
 # --- Utility Functions ---
@@ -250,7 +251,7 @@ def parse_sas_file(path: Path, filenames_to_check: list = None, parse_descriptio
     empty = {
         'procs': [], 'libnames': [], 'macro_defs': [],
         'macro_calls': [], 'dataset_refs': [], 'dependencies': '',
-        'oracle_calls': False,
+        'oracle_calls': False, 'description': NO_DESCRIPTION
     }
     if path.suffix.lower() != '.sas':
         return empty
@@ -348,10 +349,9 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
                     "Line Count": count,
                     "Dependencies": dependencies,
                     "Oracle Calls": oracle_calls,
+                    "Description": parsed['description']
                 })
 
-                if parse_descriptions:
-                    records[-1]["Description"] = parsed['description']
 
                 for r in parsed['procs']:
                     proc_records.append({"File Name": file_name, "Directory": directory, **r})
@@ -432,7 +432,7 @@ def process_single_repo(args: RepoConfig):
                 print(f"Error: {e}")
                 return
 
-        data = process_repository(working_path, args.extra_dependencies, args.exclude)
+        data = process_repository(working_path, args.extra_dependencies, args.exclude, args.parse_description)
 
         # Inject name + any extra TOML metadata into the file-level sheet only
         for col, val in {"name": args.name, **args.extra}.items():
