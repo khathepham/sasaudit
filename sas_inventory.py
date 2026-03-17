@@ -1,4 +1,5 @@
 import argparse
+import fnmatch
 import re
 import tempfile
 import tomllib
@@ -328,6 +329,30 @@ def get_extra_dependencies(extra_dependency_paths: list) -> dict:
     return extra_dependencies
 
 
+def _is_excluded(filepath: Path, root: Path, patterns: list[str]) -> bool:
+    """Check if a file should be excluded based on glob-style patterns.
+
+    Supports: extension globs (*.for), directory patterns (temp/*, jobio/**),
+    and specific relative paths — all matched against the path relative to root.
+    """
+    rel = filepath.relative_to(root).as_posix()
+    for pat in patterns:
+        if '/' not in pat:
+            # Extension or filename pattern like "*.for" — match against filename only
+            if fnmatch.fnmatch(filepath.name, pat):
+                return True
+        elif pat.endswith('/**') or pat.endswith('/*'):
+            # Directory pattern like "jobio/**" or "temp/*" — match anything under that directory
+            prefix = pat.split('/*')[0]
+            if rel == prefix or rel.startswith(prefix + '/'):
+                return True
+        else:
+            # Specific relative path pattern — match against full relative path
+            if fnmatch.fnmatch(rel, pat):
+                return True
+    return False
+
+
 def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None, parse_description: bool = False) -> dict:
     """Walks directory, analyzes each file, and returns a dict of DataFrames."""
     print("Processing Repository...")
@@ -342,7 +367,7 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
     all_files = [
         fp for fp in root_path.rglob('*')
         if fp.is_file() and not any(p.startswith('.') for p in fp.parts)
-        and (not excluded_patterns or not any(fp.match(pat) for pat in excluded_patterns))
+        and (not excluded_patterns or not _is_excluded(fp, root_path, excluded_patterns))
     ]
     filenames = [fp.stem for fp in all_files if fp.suffix.lower() == ".sas"]
     extra_dependencies = get_extra_dependencies(extra_dependency_paths if extra_dependency_paths else [])
