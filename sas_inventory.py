@@ -1,6 +1,7 @@
 import argparse
 import fnmatch
 import re
+import sys
 import tempfile
 import tomllib
 from dataclasses import dataclass, field, fields
@@ -355,7 +356,7 @@ def _is_excluded(filepath: Path, root: Path, patterns: list[str]) -> bool:
 
 def process_repository(root_path: Path, extra_dependency_paths: list = None, excluded_patterns: list = None, parse_description: bool = False) -> dict:
     """Walks directory, analyzes each file, and returns a dict of DataFrames."""
-    print("Processing Repository...")
+    print("Scanning files...")
     records = []
     proc_records = []
     libname_records = []
@@ -369,6 +370,8 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
         if fp.is_file() and not any(p.startswith('.') for p in fp.parts)
         and (not excluded_patterns or not _is_excluded(fp, root_path, excluded_patterns))
     ]
+    total_files = len(all_files)
+    print(f"  Found {total_files} file(s) to analyze.")
     filenames = [fp.stem for fp in all_files if fp.suffix.lower() == ".sas"]
     extra_dependencies = get_extra_dependencies(extra_dependency_paths if extra_dependency_paths else [])
     filenames.extend(extra_dependencies.keys())
@@ -381,7 +384,9 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
         'dataset_refs': dataset_ref_records,
     }
 
-    for file_path in all_files:
+    for i, file_path in enumerate(all_files, 1):
+        sys.stdout.write(f"\r  Analyzing file {i}/{total_files}...")
+        sys.stdout.flush()
         suffix = file_path.suffix.lower()
         file_name = file_path.name
         directory = str(file_path.parent.relative_to(root_path))
@@ -418,6 +423,8 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
             for r in parsed[key]:
                 record_list.append({"File Name": file_name, "Directory": directory, **r})
 
+    print(f"\r  Analyzed {total_files}/{total_files} files.   ")
+
     return {
         'files':        pd.DataFrame(records),
         'procs':        pd.DataFrame(proc_records),
@@ -431,7 +438,6 @@ def process_repository(root_path: Path, extra_dependency_paths: list = None, exc
 
 def export_results(data: dict, args):
     """Generates Excel workbook."""
-    print("Exporting: {}".format(args.name))
     args.output.mkdir(parents=True, exist_ok=True)
 
     df = data['files']
@@ -480,22 +486,22 @@ def create_repo_config(repo_name, config, defaults) -> RepoConfig:
     return RepoConfig(**known, extra=extra)
 
 
-def process_single_repo(args: RepoConfig):
-    """Handles logic for a single repository source."""
+def process_single_repo(args: RepoConfig) -> bool:
+    """Handles logic for a single repository source. Returns True on success."""
     source_path = Path(args.source)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         working_path = source_path
         if not source_path.is_dir():
             try:
-                print(f"Cloning: {args.source}")
+                print(f"Cloning {args.name} from {args.source}...")
                 repo = Repo.clone_from(args.source, tmp_dir)
                 if args.branch:
                     repo.git.checkout(args.branch)
                 working_path = Path(tmp_dir)
             except Exception as e:
-                print(f"Error: {e}")
-                return
+                print(f"  [FAILED] Could not clone {args.name}: {e}")
+                return False
 
         data = process_repository(working_path, args.extra_dependencies, args.exclude, args.parse_description)
 
@@ -504,7 +510,8 @@ def process_single_repo(args: RepoConfig):
             data['files'][col] = val
 
         export_results(data, args)
-        print(f"Success! Reports for: {args.name}")
+        print(f"  [OK] {args.name} — exported to {args.output / f'{args.name}_audit.xlsx'}")
+        return True
 
 
 def process_batch(toml_file: str):
@@ -513,10 +520,27 @@ def process_batch(toml_file: str):
         toml_data = tomllib.load(f)
 
     defaults = toml_data.get("defaults", {})
+    repos = toml_data.get("repo", {})
+    succeeded = []
+    failed = []
 
-    for repo_name, config in toml_data.get("repo", {}).items():
+    print(f"Processing {len(repos)} repository(ies)...\n")
+
+    for repo_name, config in repos.items():
+        print(f"--- {repo_name} ---")
         args = create_repo_config(repo_name, config, defaults)
-        process_single_repo(args)
+        if process_single_repo(args):
+            succeeded.append(repo_name)
+        else:
+            failed.append(repo_name)
+        print()
+
+    # Print summary
+    print("=" * 40)
+    print(f"Done: {len(succeeded)} succeeded, {len(failed)} failed.")
+    if failed:
+        print(f"Failed: {', '.join(failed)}")
+    print("=" * 40)
 
 
 def main():
